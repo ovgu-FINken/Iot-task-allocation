@@ -7,7 +7,7 @@ cd ns3
 ./waf clean
 ./waf configure --build-profile=debug --enable-examples --enable-tests
 ./waf 
-cd $(curdir)
+cd $curdir
 
 
 #TODO: different build config support
