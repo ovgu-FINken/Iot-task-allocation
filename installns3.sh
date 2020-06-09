@@ -1,7 +1,6 @@
-python3 ns-3-allinone/download.py -n ns-3.30
-
+git checkout NS-3-integration
 curdir=$(pwd)
-cd ns-3-allinone/ns-3.30/
+cd ns3
 ./waf clean
 ./waf configure --build-profile=debug --enable-examples --enable-tests
 ./waf 
