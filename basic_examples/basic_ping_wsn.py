@@ -9,6 +9,7 @@ import ns.csma
 import ns.internet 
 import ns.sixlowpan
 import ns.internet_apps
+import ns.energy
 import sys
 
 # // Default Network Topology
@@ -43,6 +44,9 @@ if verbose == "True":
     ns.core.LogComponentEnable("UdpEchoClientApplication", ns.core.LOG_LEVEL_INFO)
     ns.core.LogComponentEnable("UdpEchoServerApplication", ns.core.LOG_LEVEL_INFO)
     ns.core.LogComponentEnable("Ping6Application", ns.core.LOG_LEVEL_INFO)
+    ns.core.LogComponentEnable("LrWpanHelper", ns.core.LOG_LEVEL_INFO) 
+    ns.core.LogComponentEnable('BasicEnergySource', ns.core.LOG_LEVEL_INFO)
+    ns.core.LogComponentEnable('LrWpanRadioEnergyModel', ns.core.LOG_LEVEL_INFO)
 
 nodes =  ns.network.NodeContainer()
 nodes.Create(nWifi)
@@ -68,12 +72,36 @@ mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
 mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel")
 mobility.Install(nodes)
 
+
+
+
+
+
+
 lrwpanhelper = ns.lr_wpan.LrWpanHelper()
 
 lrwpandevicecontainer = lrwpanhelper.Install(nodes)
 
-#something something fake pan association?
+#Associate devices to specific PAN
 lrwpanhelper.AssociateToPan(lrwpandevicecontainer, 0)
+
+#Energy Model
+basicEnergySourceHelper = ns.energy.BasicEnergySourceHelper()
+basicEnergySourceHelper.Set("BasicEnergySourceInitialEnergyJ", ns.core.DoubleValue(10000))
+
+energySources = basicEnergySourceHelper.Install(nodes)
+testNode=nodes.Get(0)
+testDevice=lrwpandevicecontainer.Get(0)
+testEnergySource = energySources.Get(0)
+
+print(dir(ns))
+print(dir(ns.lr_wpan))
+
+energymodel = ns.lr_wpan.LrWpanRadioEnergyModel()
+energymodel.AttachPhy(testDevice.GetPhy())
+energymodel.SetEnergySource(testEnergySource)
+testEnergySource.AppendDeviceEnergyModel(energymodel)
+
 
 #stack install
 ipv6stack = ns.internet.InternetStackHelper()
@@ -105,17 +133,18 @@ ping6.SetLocal(ipv6interfaces.GetAddress(0,1))
 ping6.SetRemote(ns.network.Ipv6Address.GetAllNodesMulticast())
 
 ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10))
-ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(1))
+ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 ping6.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(1)))
 
-print("Instaling ping apps")
 
+print("Instaling ping apps")
+print(testEnergySource.GetRemainingEnergy())
 singlecontainer = ns.network.NodeContainer(nodes.Get(0))
 apps = ping6.Install(singlecontainer)
 apps.Start(ns.core.Seconds(2.0))
-apps.Stop(ns.core.Seconds(3.0))
+apps.Stop(ns.core.Seconds(10.0))
 
-
+#ns.core.Simulator.Schedule(ns.core.Seconds(5), Seconds
 print("Starting Simulation")
 ns.core.Simulator.Run()
 ns.core.Simulator.Destroy()
