@@ -25,7 +25,7 @@ import sys
 
 cmd = ns.core.CommandLine()
 cmd.verbose = "True"
-cmd.nWifi = 5
+cmd.nWifi = 3
 cmd.tracing = "True"
 
 cmd.AddValue("nWifi", "Number of wifi STA devices")
@@ -63,7 +63,7 @@ mobility = ns.mobility.MobilityHelper()
 mobility.SetPositionAllocator ("ns3::GridPositionAllocator", 
                                 "MinX", ns.core.DoubleValue(0.0), 
 				"MinY", ns.core.DoubleValue (0.0), 
-                                "DeltaX", ns.core.DoubleValue(100.0), 
+                                "DeltaX", ns.core.DoubleValue(50.0), 
                                 "DeltaY", ns.core.DoubleValue(15.0), 
                                 "GridWidth", ns.core.UintegerValue(nWifi), 
                                 "LayoutType", ns.core.StringValue("RowFirst"))
@@ -119,8 +119,8 @@ for i in range(nodes.GetN()):
     mob = nodes.Get(i).GetObject(ns.mobility.MobilityModel.GetTypeId())
     device = sixlowpancontainer.Get(i)
     #set mesh-under protocol
-    device.SetAttribute("UseMeshUnder", ns.core.BooleanValue(True))
-    device.SetAttribute("MeshUnderRadius", ns.core.UintegerValue(10))
+    #device.SetAttribute("UseMeshUnder", ns.core.BooleanValue(True))
+    #device.SetAttribute("MeshUnderRadius", ns.core.UintegerValue(10))
     #print some stuff
     print(f"Device {i}:")
     print(mob.GetPosition())
@@ -135,21 +135,19 @@ ping6.SetLocal(ipv6interfaces.GetAddress(0,1))
 ping6.SetRemote(ipv6interfaces.GetAddress(nWifi-1,1))
 #ping6.SetRemote(ns.network.Ipv6Address.GetAllNodesMulticast())
 
-ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10))
-ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(1))
+ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10000))
+ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
 ping6.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(1)))
 
 
 print("Instaling ping apps")
 singlecontainer = ns.network.NodeContainer(nodes.Get(0))
-apps = ping6.Install(singlecontainer)
-apps.Start(ns.core.Seconds(0))
-apps.Stop(ns.core.Seconds(3))
+#apps = ping6.Install(singlecontainer)
+#apps.Start(ns.core.Seconds(0))
+#apps.Stop(ns.core.Seconds(3))
 
 
 ascii = ns.network.AsciiTraceHelper()
-stream = ascii.CreateFileStream("basic-wsn-example.tr")
-lrwpanhelper.EnableAsciiAll(stream)
 lrwpanhelper.EnablePcapAll("basic-wsn-example", True)
 
 #ns.core.Simulator.Schedule(ns.core.Seconds(5), Seconds
