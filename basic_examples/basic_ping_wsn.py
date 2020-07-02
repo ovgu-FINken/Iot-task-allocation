@@ -25,7 +25,7 @@ import sys
 
 cmd = ns.core.CommandLine()
 cmd.verbose = "True"
-cmd.nWifi = 3
+cmd.nWifi = 8
 cmd.tracing = "True"
 
 cmd.AddValue("nWifi", "Number of wifi STA devices")
@@ -46,7 +46,7 @@ if verbose == "True":
     #ns.core.LogComponentEnable('LrWpanRadioEnergyModel', ns.core.LOG_LEVEL_ALL)
     #ns.core.LogComponentEnable('InternetStackHelper', ns.core.LOG_ALL)
     #ns.core.LogComponentEnable('Ipv6AddressHelper', ns.core.LOG_ALL)
-    ns.core.LogComponentEnable('SixLowPanNetDevice', ns.core.LOG_INFO) 
+    #ns.core.LogComponentEnable('SixLowPanNetDevice', ns.core.LOG_LEVEL_INFO) 
     #ns.core.LogComponentEnable('LrWpanPhy', ns.core.LOG_LEVEL_ALL)
 nodes =  ns.network.NodeContainer()
 nodes.Create(nWifi)
@@ -115,12 +115,18 @@ ipv6address = ns.internet.Ipv6AddressHelper()
 ipv6address.SetBase(ns.network.Ipv6Address("2001:1::"), ns.network.Ipv6Prefix(64))
 ipv6interfaces = ipv6address.Assign(sixlowpancontainer)
 
+
+
+
+
+
 for i in range(nodes.GetN()):
     mob = nodes.Get(i).GetObject(ns.mobility.MobilityModel.GetTypeId())
     device = sixlowpancontainer.Get(i)
     #set mesh-under protocol
     #device.SetAttribute("UseMeshUnder", ns.core.BooleanValue(True))
     #device.SetAttribute("MeshUnderRadius", ns.core.UintegerValue(10))
+    #device.SetAttribute("MeshCacheLength", ns.core.UintegerValue(50))
     #print some stuff
     print(f"Device {i}:")
     print(mob.GetPosition())
@@ -128,27 +134,32 @@ for i in range(nodes.GetN()):
     print(ipv6interfaces.GetAddress(i,1))
     print()
 
+
+
+
+
 #applications
 print("Creating ping apps")
 ping6 = ns.internet_apps.Ping6Helper()
-ping6.SetLocal(ipv6interfaces.GetAddress(0,1))
-ping6.SetRemote(ipv6interfaces.GetAddress(nWifi-1,1))
-#ping6.SetRemote(ns.network.Ipv6Address.GetAllNodesMulticast())
+ping6.SetLocal(ipv6interfaces.GetAddress(nWifi-1,1))
+ping6.SetRemote(ipv6interfaces.GetAddress(0,1))
 
-ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10000))
-ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(100))
+
+ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10))
+ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(1))
 ping6.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(1)))
 
 
 print("Instaling ping apps")
-singlecontainer = ns.network.NodeContainer(nodes.Get(0))
-#apps = ping6.Install(singlecontainer)
-#apps.Start(ns.core.Seconds(0))
-#apps.Stop(ns.core.Seconds(3))
+singlecontainer = ns.network.NodeContainer(nodes.Get(nWifi-1))
+apps = ping6.Install(singlecontainer)
+apps.Start(ns.core.Seconds(2.5))
+apps.Stop(ns.core.Seconds(5))
 
 
 ascii = ns.network.AsciiTraceHelper()
 lrwpanhelper.EnablePcapAll("basic-wsn-example", True)
+
 
 #ns.core.Simulator.Schedule(ns.core.Seconds(5), Seconds
 print("Starting Simulation")
