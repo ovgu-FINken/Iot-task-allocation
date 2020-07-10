@@ -1,7 +1,7 @@
 curdir=$(pwd)
 cd ns3
-./waf configure --build-profile=debug --enable-examples --enable-tests
-./waf -v
+CXXFLAGS="-std=c++1z" ./waf configure --build-profile=debug --enable-examples --enable-tests
+CXXFLAGS="-std=c++1z" ./waf -v
 cd $curdir
 
 #TODO: different build config support

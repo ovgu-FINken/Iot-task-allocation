@@ -117,7 +117,7 @@ ipv6interfaces = ipv6address.Assign(sixlowpancontainer)
 
 
 
-
+taskF = ns.applications.TaskFactory.Create("SEND")
 
 
 for i in range(nodes.GetN()):
@@ -150,7 +150,7 @@ ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(1))
 ping6.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(1)))
 
 
-print("Instaling ping apps")
+print("Installing ping apps")
 singlecontainer = ns.network.NodeContainer(nodes.Get(nWifi-1))
 apps = ping6.Install(singlecontainer)
 apps.Start(ns.core.Seconds(2.5))

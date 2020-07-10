@@ -15,15 +15,31 @@ import sys
 
 if __name__ == '__main__':
     cmd = ns.core.CommandLine()
-    cmd.module = "core"
+    cmd.module = "ns"
+    cmd.contains = ""
+    cmd.search = ""
     cmd.AddValue("module", "Module for dir printing")
-
+    cmd.AddValue("contains", "Restrict results to entreis containing this")
+    cmd.AddValue("search", "search for this")
     cmd.Parse(sys.argv)
 
-    module = cmd.module
-    
-    options = {
-            "core" : ns.core,
-            "network" : ns.network,
-            "internet" : ns.internet}
-    print(dir(options[module]))
+    if cmd.search == "":
+        module = cmd.module
+        
+        options = {
+                "ns" : ns,
+                "core" : ns.core,
+                "network" : ns.network,
+                "internet" : ns.internet,
+                "applications" : ns.applications,
+                'lrwpan' : ns.lr_wpan}
+        print(f"Attributes for {module}:")
+        if cmd.contains== "":
+            print(dir(options[module]))
+        else:
+            print(f"Restriction: {cmd.contains}")
+            res = dir(options[module])
+            res = [x for x in res if str(cmd.contains) in str(x)]
+            print(res)
+    else:
+        pass
