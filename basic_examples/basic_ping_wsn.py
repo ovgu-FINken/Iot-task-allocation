@@ -63,8 +63,8 @@ mobility = ns.mobility.MobilityHelper()
 mobility.SetPositionAllocator ("ns3::GridPositionAllocator", 
                                 "MinX", ns.core.DoubleValue(0.0), 
 				"MinY", ns.core.DoubleValue (0.0), 
-                                "DeltaX", ns.core.DoubleValue(50.0), 
-                                "DeltaY", ns.core.DoubleValue(15.0), 
+                                "DeltaX", ns.core.DoubleValue(1.0), 
+                                "DeltaY", ns.core.DoubleValue(1.0), 
                                 "GridWidth", ns.core.UintegerValue(nWifi), 
                                 "LayoutType", ns.core.StringValue("RowFirst"))
                                 
@@ -117,7 +117,6 @@ ipv6interfaces = ipv6address.Assign(sixlowpancontainer)
 
 
 
-taskF = ns.applications.TaskFactory.Create("SEND")
 
 
 for i in range(nodes.GetN()):
@@ -129,40 +128,72 @@ for i in range(nodes.GetN()):
     #device.SetAttribute("MeshCacheLength", ns.core.UintegerValue(50))
     #print some stuff
     print(f"Device {i}:")
-    print(mob.GetPosition())
-    print(ipv6interfaces.GetAddress(i,0))
-    print(ipv6interfaces.GetAddress(i,1))
+    #print(mob.GetPosition())
+    print(f"Sixlowpan address: {device.GetAddress()}")
+    print(f"link local: {ipv6interfaces.GetAddress(i,0)}")
+    print(f"whatever this is: {ipv6interfaces.GetAddress(i,1)}")
     print()
 
 
 
+taskFactory = ns.core.ObjectFactory()
+taskFactory.SetTypeId("ns3::ProcessingTask")
+taskFactory.Set ("StartTime", ns.core.TimeValue(ns.core.Seconds(0))) 
+taskFactory.Set ("StopTime", ns.core.TimeValue(ns.core.Seconds(12))) 
+taskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(6)))
+
+controlFactory = ns.core.ObjectFactory()
+controlFactory.SetTypeId("ns3::ControlTask")
+controlFactory.Set("Interval", ns.core.TimeValue(ns.core.Seconds(5)))
+c1 = controlFactory.Create()
 
 
-#applications
-print("Creating ping apps")
-ping6 = ns.internet_apps.Ping6Helper()
-ping6.SetLocal(ipv6interfaces.GetAddress(nWifi-1,1))
-ping6.SetRemote(ipv6interfaces.GetAddress(0,1))
+taskHelper = ns.applications.TaskHelper()
+taskApps = taskHelper.Install(nodes)
 
+alloc = [(0,[0]),
+	 (1,[0]),
+	 (2,[1]),
+	 (3,[2]),
+	 (4,[3]),
+	 (5,[4]),
+	 (6,[5]),
+	 (7,[6]),
+	 (8,[7]),
+	 ]
 
-ping6.SetAttribute("PacketSize", ns.core.UintegerValue(10))
-ping6.SetAttribute("MaxPackets", ns.core.UintegerValue(1))
-ping6.SetAttribute("Interval", ns.core.TimeValue(ns.core.Seconds(1)))
+c1.SetInitialAllocation(alloc)
+c1.DoInitialize()
+taskApps.Get(0).AddTask(c1)
 
+for i in range(taskApps.GetN()):
+    #print(f"TaskApp {i}:")
+    #print(taskApps.Get(i).GetTypeId())
+    t1 = taskFactory.Create()
+    #we need to manually initialize these because we do not aggregate them 
+    t1.DoInitialize()
+    taskApps.Get(i).AddTask(t1)
+    print()
 
-print("Installing ping apps")
-singlecontainer = ns.network.NodeContainer(nodes.Get(nWifi-1))
-apps = ping6.Install(singlecontainer)
-apps.Start(ns.core.Seconds(2.5))
-apps.Stop(ns.core.Seconds(5))
+alloc = [(0,[0]),
+	 (1,[7,6,5]),
+	 (2,[6]),
+	 (3,[5]),
+	 (4,[4]),
+	 (5,[3]),
+	 (6,[2]),
+	 (7,[1]),
+	 (8,[1]),
+	 ]
 
 
 ascii = ns.network.AsciiTraceHelper()
 lrwpanhelper.EnablePcapAll("basic-wsn-example", True)
 
+ns.core.Simulator.Schedule(ns.core.Seconds(10), c1.Reallocate, alloc, taskApps)
 
-#ns.core.Simulator.Schedule(ns.core.Seconds(5), Seconds
 print("Starting Simulation")
+ns.core.Simulator.Stop(ns.core.Seconds(20))
 ns.core.Simulator.Run()
 ns.core.Simulator.Destroy()
 
