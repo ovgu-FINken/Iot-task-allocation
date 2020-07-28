@@ -38,6 +38,10 @@
 #include "ns3/lr-wpan-module.h"
 #include "ns3/internet-apps-module.h"
 #include "ns3/mobility-module.h"
+#include "ns3/applications-module.h"
+
+
+
 
 using namespace ns3;
 
@@ -49,21 +53,21 @@ int main (int argc, char **argv)
   uint16_t nWifi = 2;
   CommandLine cmd (__FILE__);
   cmd.AddValue ("verbose", "turn on log components", verbose);
-  cmd.Addvalue ("nWifi", "Number of wifi nodes", nWifi)
+  cmd.AddValue ("nWifi", "Number of wifi nodes", nWifi);
   cmd.Parse (argc, argv);
 
   if (verbose)
     {
       LogComponentEnable ("Ping6WsnExample", LOG_LEVEL_INFO);
-      LogComponentEnable ("Ipv6EndPointDemux", LOG_LEVEL_ALL);
-      LogComponentEnable ("Ipv6L3Protocol", LOG_LEVEL_ALL);
-      LogComponentEnable ("Ipv6StaticRouting", LOG_LEVEL_ALL);
-      LogComponentEnable ("Ipv6ListRouting", LOG_LEVEL_ALL);
-      LogComponentEnable ("Ipv6Interface", LOG_LEVEL_ALL);
-      LogComponentEnable ("Icmpv6L4Protocol", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Ipv6EndPointDemux", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Ipv6L3Protocol", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Ipv6StaticRouting", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Ipv6ListRouting", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Ipv6Interface", LOG_LEVEL_ALL);
+      //LogComponentEnable ("Icmpv6L4Protocol", LOG_LEVEL_ALL);
       LogComponentEnable ("Ping6Application", LOG_LEVEL_ALL);
-      LogComponentEnable ("NdiscCache", LOG_LEVEL_ALL);
-      LogComponentEnable ("SixLowPanNetDevice", LOG_LEVEL_ALL);
+      //LogComponentEnable ("NdiscCache", LOG_LEVEL_ALL);
+      //LogComponentEnable ("SixLowPanNetDevice", LOG_LEVEL_ALL);
     }
 
   NS_LOG_INFO ("Create nodes.");
@@ -78,13 +82,12 @@ int main (int argc, char **argv)
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
 
   mobility.SetPositionAllocator ("ns3::GridPositionAllocator", 
-                                "MinX", 0.0, 
-                				"MinY", 0.0, 
-                                "DeltaX", 50.0, 
-                                "DeltaY", 15.0, 
-                                "GridWidth", nWifi, 
-                                "LayoutType", "RowFirst")
-  
+                                "MinX", DoubleValue (0.0), 
+                				"MinY", DoubleValue (0.0), 
+                                "DeltaX", DoubleValue (50.0), 
+                                "DeltaY", DoubleValue (5.0), 
+                                "GridWidth", UintegerValue (nWifi), 
+                                "LayoutType", StringValue ("RowFirst"));
   
   mobility.Install (nodes);
 
@@ -125,20 +128,49 @@ int main (int argc, char **argv)
   Ping6Helper ping6;
 
   ping6.SetLocal (i.GetAddress (0, 1));
-  ping6.SetRemote (i.GetAddress (1, 1));
+  ping6.SetRemote (i.GetAddress (nWifi-1, 1));
   // ping6.SetRemote (Ipv6Address::GetAllNodesMulticast ());
 
   ping6.SetAttribute ("MaxPackets", UintegerValue (maxPacketCount));
   ping6.SetAttribute ("Interval", TimeValue (interPacketInterval));
   ping6.SetAttribute ("PacketSize", UintegerValue (packetSize));
   ApplicationContainer apps = ping6.Install (nodes.Get (0));
-  apps.Start (Seconds (2.0));
-  apps.Stop (Seconds (10.0));
+  //apps.Start (Seconds (2.0));
+  //apps.Stop (Seconds (10.0));
 
   AsciiTraceHelper ascii;
   lrWpanHelper.EnableAsciiAll (ascii.CreateFileStream ("ping6wsn.tr"));
   lrWpanHelper.EnablePcapAll (std::string ("ping6wsn"), true);
 
+  
+  ObjectFactory taskFactory;
+  taskFactory.SetTypeId("ns3::Task");
+  Ptr<Object> t1;
+  t1 = taskFactory.Create();
+  //t1->Execute();
+
+
+
+  //tasks.push_back(TaskFactory::Create("SEND", {'a', 100, 1234}));
+  /**
+  for (auto it = tasks.begin(); it != tasks.end(); ++it){
+        it->get()->Execute();
+  }
+  **/
+ 
+  TaskHelper taskHelper;
+  ApplicationContainer taskApps = taskHelper.Install (nodes);
+  std::cout << "ping6 " << apps.Get(0)->GetTypeId() << std::endl;
+  std::cout << "task " << taskApps.Get(0)->GetTypeId() << std::endl;
+
+
+  //taskApps.Get(0).AddTask(t1);
+
+
+
+  //for (auto it = TaskApps.Begin(), it != taskApps.End(), it++)
+
+  //taskApps.Get(0)->MigrateTask(0, taskApps.Get(1));
   NS_LOG_INFO ("Run Simulation.");
   Simulator::Run ();
   Simulator::Destroy ();

@@ -14,26 +14,23 @@ import sys
 
 
 
-
 class Network:
     def __init__(self, nodeCount = 10, positionSettings = {}, mobilitySettings = {}, appSettings= {}, initEnergyJ = 1000):
         self.nodeContainer = self.initNodes(nodeCount)
         self.emptyNodeContainer = ns.network.NodeContainer()
         self.mobilityHelper = self.initPositionAndMobility(positionSettings, mobilitySettings)
-        
         self.lrWpanHelper = ns.lr_wpan.LrWpanHelper()
         self.lrWpanDeviceContainer = self.initLrWpan()
-        
-        self.energySourceContainer = self.initEnergy(initEnergyJ)
+        #self.energySourceContainer = self.initEnergy(initEnergyJ)
         self.sixLowPanContainer = self.initSixLowPan()
         self.ipv6Interfaces = self.initIpv6()
-        self.installPingApp(appSettings)
+        #self.apps = self.installPingApp(appSettings)
+        self.apps = self.installOnOffApp(appSettings)
         
+        
+        #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
+        self.currentAllocation = None
         self.enablePcap()
-
-        
-
-
 
     def initNodes(self, nodeCount : int):
         nodeContainer = ns.network.NodeContainer()
@@ -117,13 +114,55 @@ class Network:
 
         singlecontainer = ns.network.NodeContainer(self.nodeContainer.Get(0))
         apps = ping6.Install(singlecontainer)
-        apps.Start(ns.core.Seconds(0))
+        apps.Start(ns.core.Seconds(2))
         apps.Stop(ns.core.Seconds(120))
+        return apps
+   
+    def installOnOffApp(self, appSettings):
+        remoteAddress = self.ipv6Interfaces.GetLinkLocalAddress(1)
+        remoteAddressWithSocket = ns.network.Inet6SocketAddress(remoteAddress, 2323)
+        
+        localAddress = self.ipv6Interfaces.GetLinkLocalAddress(0)
+        localAddressWithSocket = ns.network.Inet6SocketAddress(localAddress, 2323)
+        
+        onOff = ns.applications.OnOffHelper("ns3::Ipv6RawSocketFactory", remoteAddressWithSocket)
+        print(remoteAddress)
 
+        onStream =  ns.core.ConstantRandomVariable()
+        
+        
+        
+        onStream.SetAttribute("Constant", ns.core.DoubleValue(10))
+        offStream =  ns.core.ConstantRandomVariable()
+        offStream.SetAttribute("Constant", ns.core.DoubleValue(10))
+        
+        onPtr = ns.core.PointerValue(onStream)
+        offPtr = ns.core.PointerValue(offStream)
+        
+        onOff.SetAttribute("OnTime", onPtr)
+        onOff.SetAttribute("OffTime", offPtr)
+        onOff.SetAttribute("PacketSize", ns.core.UintegerValue(1000))
+        onOff.SetAttribute("DataRate", ns.network.DataRateValue(ns.network.DataRate(500)))
+        #onOff.SetAttribute("Local", ns.network.AddressValue(localAddressWithSocket))
+        singleContainer = ns.network.NodeContainer(self.nodeContainer.Get(0))
+        apps = onOff.Install(singleContainer)
+        local = ns.network.AddressValue()
+        remote = ns.network.AddressValue()
+
+        apps.Get(0).GetAttribute("Local",local)
+        apps.Get(0).GetAttribute("Remote",remote)
+        print(local.Get())
+        print(remote.Get())
+        
+        
+        apps.Start(ns.core.Seconds(5))
+        apps.Stop(ns.core.Seconds(35))
+        return apps
 
     def enablePcap(self):
         self.lrWpanHelper.EnablePcapAll("network-wrapper", True)
-    
+        
+
     def deactivateNode(self, node = 0):
         #l = ns.core.ObjectPtrContainerValue()
         #self.nodeContainer.Get(0).GetAttribute("DeviceList", l)
@@ -143,7 +182,7 @@ class Network:
             if i ==1:
                 print(f"Underlying net Device: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().GetNetDevice()}")
                 self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).SetDown()
-                self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().GetNetDevice().LinkDown()
+                #self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().GetNetDevice().LinkDown()
             print(f"Interface IsUp: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).IsUp()}")
             print(f"Device IsLinkUp: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().IsLinkUp()}")
 
@@ -192,6 +231,7 @@ if __name__ == '__main__':
     if verbose == "True":
         ns.core.LogComponentEnable("Ping6Application", ns.core.LOG_LEVEL_INFO)
         ns.core.LogComponentEnable("LrWpanHelper", ns.core.LOG_LEVEL_INFO) 
+        ns.core.LogComponentEnable("OnOffApplication", ns.core.LOG_LEVEL_INFO)
         #ns.core.LogComponentEnable('BasicEnergySource', ns.core.LOG_LEVEL_INFO)
         #ns.core.LogComponentEnable('LrWpanRadioEnergyModel', ns.core.LOG_LEVEL_ALL)
         #ns.core.LogComponentEnable('InternetStackHelper', ns.core.LOG_ALL)
@@ -202,9 +242,9 @@ if __name__ == '__main__':
     posDict = {"allocator" : "ns3::GridPositionAllocator", 
                                 "MinX" : ns.core.DoubleValue(0.0), 
 				"MinY" : ns.core.DoubleValue (0.0), 
-                                "DeltaX" : ns.core.DoubleValue(20.0), 
-                                "DeltaY" : ns.core.DoubleValue(15.0), 
-                                "GridWidth" : ns.core.UintegerValue(5), 
+                                "DeltaX" : ns.core.DoubleValue(5.0), 
+                                "DeltaY" : ns.core.DoubleValue(5.0), 
+                                "GridWidth" : ns.core.UintegerValue(10), 
                                 "LayoutType" : ns.core.StringValue("RowFirst")}
     mobDict = {"model" : "ns3::ConstantPositionMobilityModel"}
     
@@ -217,7 +257,8 @@ if __name__ == '__main__':
     test = Network(nodeCount= nWifi, positionSettings=posDict, mobilitySettings=mobDict, appSettings=appSettings, initEnergyJ = initEnergyJ)
 
     print(test)
-    ns.core.Simulator.Schedule(ns.core.Seconds(5), test.deactivateNode, 1)
+    #ns.core.Simulator.Schedule(ns.core.Seconds(5), test.deactivateNode, 1)
+    
     print("Starting Simulation")
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()

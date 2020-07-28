@@ -81,22 +81,19 @@ lrwpandevicecontainer = lrwpanhelper.Install(nodes)
 #Associate devices to specific PAN
 lrwpanhelper.AssociateToPan(lrwpandevicecontainer, 0)
 
-##Energy Model
-#basicEnergySourceHelper = ns.energy.BasicEnergySourceHelper()
-#basicEnergySourceHelper.Set("BasicEnergySourceInitialEnergyJ", ns.core.DoubleValue(0.005))
-#
-#testNode=nodes.Get(0)
-#energySources = basicEnergySourceHelper.Install(testNode)
-#testDevice=lrwpandevicecontainer.Get(0)
-#testEnergySource = energySources.Get(0)
-#
-#print(dir(ns))
-#print(dir(ns.lr_wpan))
-#
-#energymodel = ns.lr_wpan.LrWpanRadioEnergyModel()
-#energymodel.AttachPhy(testDevice.GetPhy())
-#energymodel.SetEnergySource(testEnergySource)
-#testEnergySource.AppendDeviceEnergyModel(energymodel)
+#Energy Model
+basicEnergySourceHelper = ns.energy.BasicEnergySourceHelper()
+basicEnergySourceHelper.Set("BasicEnergySourceInitialEnergyJ", ns.core.DoubleValue(100))
+
+testNode=nodes.Get(0)
+energySources = basicEnergySourceHelper.Install(nodes)
+testDevice=lrwpandevicecontainer.Get(0)
+testEnergySource = energySources.Get(0)
+
+energymodel = ns.lr_wpan.LrWpanRadioEnergyModel()
+energymodel.AttachPhy(testDevice.GetPhy())
+energymodel.SetEnergySource(testEnergySource)
+testEnergySource.AppendDeviceEnergyModel(energymodel)
 
 
 #stack install
@@ -138,13 +135,18 @@ for i in range(nodes.GetN()):
 
 taskFactory = ns.core.ObjectFactory()
 taskFactory.SetTypeId("ns3::ProcessingTask")
-taskFactory.Set ("StartTime", ns.core.TimeValue(ns.core.Seconds(0))) 
+taskFactory.Set ("StartTime", ns.core.TimeValue(ns.core.Seconds(1))) 
 taskFactory.Set ("StopTime", ns.core.TimeValue(ns.core.Seconds(12))) 
-taskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(6)))
+taskFactory.Set ("Port", ns.core.UintegerValue(1337))
+
+sendTaskFactory = ns.core.ObjectFactory()
+sendTaskFactory.SetTypeId("ns3::SendTask")
+sendTaskFactory.Set ("StartTime", ns.core.TimeValue(ns.core.Seconds(1))) 
+sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(3)))
+taskFactory.Set ("Port", ns.core.UintegerValue(4114))
 
 controlFactory = ns.core.ObjectFactory()
 controlFactory.SetTypeId("ns3::ControlTask")
-controlFactory.Set("Interval", ns.core.TimeValue(ns.core.Seconds(5)))
 c1 = controlFactory.Create()
 
 
@@ -153,13 +155,21 @@ taskApps = taskHelper.Install(nodes)
 
 alloc = [(0,[0]),
 	 (1,[0]),
-	 (2,[1]),
-	 (3,[2]),
-	 (4,[3]),
-	 (5,[4]),
-	 (6,[5]),
-	 (7,[6]),
-	 (8,[7]),
+	 (2,[0]),
+	 (3,[1]),
+	 (4,[1]),
+	 (5,[2]),
+	 (6,[2]),
+	 (7,[3]),
+	 (8,[3]),
+	 (9,[4]),
+	 (10,[4]),
+	 (11,[5]),
+	 (12,[5]),
+	 (13,[6]),
+	 (14,[6]),
+	 (15,[7]),
+	 (16,[7]),
 	 ]
 
 c1.SetInitialAllocation(alloc)
@@ -169,21 +179,36 @@ taskApps.Get(0).AddTask(c1)
 for i in range(taskApps.GetN()):
     #print(f"TaskApp {i}:")
     #print(taskApps.Get(i).GetTypeId())
+    print("proctask")
     t1 = taskFactory.Create()
+    print("sendtask")
+    t2 = sendTaskFactory.Create()
     #we need to manually initialize these because we do not aggregate them 
     t1.DoInitialize()
+    t2.DoInitialize()
+    t2.AddSuccessor(t1)
+    t1.AddPredecessor(t2)
     taskApps.Get(i).AddTask(t1)
+    taskApps.Get(i).AddTask(t2)
     print()
 
 alloc = [(0,[0]),
-	 (1,[7,6,5]),
-	 (2,[6]),
-	 (3,[5]),
-	 (4,[4]),
-	 (5,[3]),
-	 (6,[2]),
-	 (7,[1]),
-	 (8,[1]),
+	 (1,[7]),
+	 (2,[7]),
+	 (3,[6]),
+	 (4,[6]),
+	 (5,[5]),
+	 (6,[5]),
+	 (7,[4]),
+	 (8,[4]),
+	 (9,[3]),
+	 (10,[3]),
+	 (11,[2]),
+	 (12,[2]),
+	 (13,[1]),
+	 (14,[1]),
+	 (15,[1]),
+	 (16,[1]),
 	 ]
 
 
