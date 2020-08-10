@@ -92,7 +92,7 @@ lrwpanhelper.AssociateToPan(lrwpandevicecontainer, 0)
 
 #Energy Model
 liIonEnergySourceHelper = ns.energy.LiIonEnergySourceHelper()
-liIonEnergySourceHelper.Set("LiIonEnergySourceInitialEnergyJ", ns.core.DoubleValue(1000))
+liIonEnergySourceHelper.Set("LiIonEnergySourceInitialEnergyJ", ns.core.DoubleValue(2))
 
 energySources = liIonEnergySourceHelper.Install(nodes)
 
@@ -328,7 +328,7 @@ alloc = [(0,[3]),
 #	 ]
 
 #ascii = ns.core.OfStreamWrapper("wifi-ap.tr") # create the file:
-lrwpanhelper.EnablePcapAll("basic-wsn-example", True)
+#lrwpanhelper.EnablePcapAll("basic-wsn-example", True)
 #lrwpanhelper.EnableAsciiAll (ascii)
 
 

@@ -39,6 +39,8 @@
 #include "ns3/internet-apps-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/applications-module.h"
+#include "ns3/sixlowpan-net-device.h"
+#include "ns3/type-id.h"
 
 
 
@@ -144,7 +146,7 @@ int main (int argc, char **argv)
 
   
   ObjectFactory taskFactory;
-  taskFactory.SetTypeId("ns3::Task");
+  taskFactory.SetTypeId("ns3::SendTask");
   Ptr<Object> t1;
   t1 = taskFactory.Create();
   //t1->Execute();
@@ -162,8 +164,10 @@ int main (int argc, char **argv)
   ApplicationContainer taskApps = taskHelper.Install (nodes);
   std::cout << "ping6 " << apps.Get(0)->GetTypeId() << std::endl;
   std::cout << "task " << taskApps.Get(0)->GetTypeId() << std::endl;
-
-
+  
+  Ptr<Node> n = nodes.Get(0);
+  Ptr<SixLowPanNetDevice> six = n->GetObject<SixLowPanNetDevice>();
+  std::cout << six << std::endl;
   //taskApps.Get(0).AddTask(t1);
 
 
