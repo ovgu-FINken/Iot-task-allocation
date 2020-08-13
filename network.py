@@ -30,8 +30,13 @@ class GraphNode:
     def __str__(self):
         return(f"{self.pos} \n {self.energy}")
 
-def Grid(dimx = 10,dimy = 10, deltax=100, deltay=100, energy=100):
+def Grid(nNodes = 16, dimx = 10,dimy = 10, deltax=100, deltay=100, energy=100):
     "Create a  grid network with a 4-neighborhood"
+    if not ((nNodes / dimx) == dimy):
+        print(f"Cant create network with {nNodes} nodes and {dimx}x{dimy} grid setup")
+        dimx = int(np.sqrt(nNodes))+1
+        dimy = dimx
+        print(f"Creating {dimx*dimy} nodes for {dimx}x{dimy} grid dimensions")
     x=0
     y=0
     G=nx.OrderedGraph()
@@ -81,14 +86,19 @@ def TwoTaskWithProcessing(networkGraph = None, nTasks=0, deltax = 100):
     if nTasks == 0:
         nTasks = len(networkGraph.nodes())
     Task.taskId = 1
-    n = len(networkGraph.nodes())
     G = nx.OrderedDiGraph()
-    first_constraint = {'location' : np.array([np.array([-1,1]),np.array([-1,1])])}
+    pos1 = list(networkGraph.nodes())[0].pos
+    bound1 = np.array([np.array([pos1[0]-1,pos1[0]+1]), np.array([pos1[1]-1,pos1[1]+1])])
+    pos2 = list(networkGraph.nodes())[-1].pos
+    bound2 = np.array([np.array([pos2[0]-1,pos2[0]+1]), np.array([pos2[1]-1,pos2[1]+1])])
+    first_constraint = {'location' : bound1}
     task1 = Task(first_constraint)
     G.add_node(task1)
     for i in range(nTasks-2):
         G.add_node(Task())
-    second_constraint = {'location' : np.array([np.array([(n-1)*deltax-1,(n-1)*deltax+1]),np.array([-1,1])])}
+    second_constraint = {'location' : bound2}
+    print(first_constraint)
+    print(second_constraint)
     task2 = Task(second_constraint)
     G.add_node(task2)
     
@@ -151,9 +161,9 @@ class Network:
         for i in range(lrWpanDeviceContainer.GetN()):
             lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnSlottedCsmaCa()
             lrWpanDeviceContainer.Get(i).GetMac().SetMacMaxFrameRetries(0)
-            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMaxBE(10)
-            #lrwpandevicecontainer.Get(i).GetCsmaCa().SetMacMinBE(5)
-            #lrwpandevicecontainer.Get(i).GetCsmaCa().SetUnitBackoffPeriod(255)
+            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMaxBE(20)
+            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMinBE(4)
+            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnitBackoffPeriod(25)
         return lrWpanDeviceContainer 
 
     def initEnergy(self, node, nodeIndex):
@@ -236,13 +246,22 @@ class Network:
             result_list.append(energySourceContainer.Get(0).GetRemainingEnergy())
         
     
-    def getLatency(self, latency_list = []):
+    def getLatency(self, latency_list = [], received_list = []):
         actTaskId = ns.core.TypeId.LookupByName("ns3::ActuatingTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == actTaskId:
                     latency_list.append(task.GetAverageLatency())
+                    received_list.append(task.GetNReceived())
     
+    def getPackagesSent(self, packages_sent = []):
+        sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
+        for i in range(self.taskApps.GetN()):
+            for task in self.taskApps.Get(i).GetTasks():
+                if task.GetTypeId() == sendTaskId:
+                    packages_sent.append(task.GetPackagesSent())
+                    return
+
     def cleanUp(self):
         self.networkGraph = 0
         self.nodeContainer = 0
@@ -276,7 +295,7 @@ def createTasksFromGraph(network, taskGraph, allocation):
 
     actTaskFactory = ns.core.ObjectFactory()
     actTaskFactory.SetTypeId("ns3::ActuatingTask")
-    
+
     relayTaskFactory = ns.core.ObjectFactory()
     relayTaskFactory.SetTypeId("ns3::RelayTask")
 
@@ -354,18 +373,90 @@ def createTasksFromGraph(network, taskGraph, allocation):
 
 
 
-
-
-def evaluate(allocation, graphs):
+def evaluateWithEn(allocation, graphs):
     time = 0
     latency = 0
-    #taskGraph = graphs[1]
+    taskGraph = graphs[1]
     energy_list = graphs[2]
     networkGraph = Line(len(graphs[0].nodes()), energy=energy_list)
     #print("Building Network")
     
     network = Network(networkGraph)
-    taskGraph = TwoTaskWithProcessing(networkGraph)   
+    #because we modify the tasks we need to make sure we work on a copy
+    taskGraph = TwoTaskWithProcessing(networkGraph, nTasks=len(taskGraph.nodes()))   
+    
+    to_remove = []
+    for node in networkGraph.nodes():
+        if node.energy <= 1:
+            to_remove.append(node)
+    networkGraph.remove_nodes_from(to_remove)
+    
+    depleted_indexes = []
+    for i,energy in enumerate(energy_list):
+        if energy <= 1:
+            depleted_indexes.append(i, energy)
+
+    if not(nx.is_connected(networkGraph)):
+        raise exceptions.NetworkDeadException
+    createTasksFromGraph(network, taskGraph, list(allocation))
+    #print(f"nodes left: {len(networkGraph.nodes())}")
+    #print("Starting Simulation")
+    latency_list = []
+    received_list = []
+    sent_list = []
+    energy_list = []
+    time = []
+    def getTime(time = []):
+        time.append(ns.core.Simulator.Now().GetSeconds())    
+    ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list, received_list)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list)
+    ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
+    ns.core.Simulator.ScheduleDestroy(getTime, time)
+    ns.core.Simulator.Run()
+    ns.core.Simulator.Destroy()
+    #print(latency_list)
+    latency = max(latency_list)
+    #penalize for lost packages
+    missed_packages = sent_list[0] - received_list[0]
+    latency += latency*0.01*missed_packages
+    time = np.mean(time)
+    time -= time*0.01*missed_packages
+    #print(f"missed packages:{missed_packages}") 
+    if latency == 0:
+        latency = 99999
+
+    for index, energy in depleted_indexes:
+        energy_list.insert(index, energy)
+    received = np.mean(received_list)
+    #print(f"latency: {latency}")
+    #print(energy_list)
+    #energy = np.mean(energy_list)
+    #print(f"lifetime: {time}")
+    network.cleanUp()
+    network = 0
+    taskGraph = 0
+    networkGraph = 0
+    
+    return -time, latency, energy_list
+
+
+def evaluate(allocation, **kwargs):
+    #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
+    time = 0
+    latency = 0
+    nNodes = kwargs['nNodes']
+    network_creator = kwargs['network_creator']
+    nTasks = kwargs['nTasks']
+    task_creator = kwargs['task_creator']
+    energy_list = kwargs['energy_list']
+    energy_list = graphs[2]
+    graphtype = 
+    networkGraph = Line(len(graphs[0].nodes()), energy=energy_list)
+    #print("Building Network")
+    
+    network = Network(networkGraph)
+    #because we modify the tasks we need to make sure we work on a copy
+    taskGraph = TwoTaskWithProcessing(networkGraph, nTasks=len(taskGraph.nodes()))   
     
     to_remove = []
     for node in networkGraph.nodes():
@@ -374,35 +465,49 @@ def evaluate(allocation, graphs):
     networkGraph.remove_nodes_from(to_remove)
     
     if not(nx.is_connected(networkGraph)):
-        return 0,99999
+        raise exceptions.NetworkDeadException
     createTasksFromGraph(network, taskGraph, allocation)
     #print(f"nodes left: {len(networkGraph.nodes())}")
     #print("Starting Simulation")
     latency_list = []
+    received_list = []
+    sent_list = []
     energy_list = []
     time = []
     def getTime(time = []):
         time.append(ns.core.Simulator.Now().GetSeconds())    
-    ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list)
+    ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list, received_list)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list)
     ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
     ns.core.Simulator.ScheduleDestroy(getTime, time)
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
     #print(latency_list)
+    
     latency = max(latency_list)
+    #print(sent_list)
+    #print(received_list)
+    missed_packages = sent_list[0] - received_list[0]
+    latency += latency*0.01*missed_packages
+    time = np.mean(time)
+    #print(time)
+    time -= time*0.01*missed_packages
+    #print(time)
+    #print(f"missed packages:{missed_packages}") 
     if latency == 0:
         latency = 99999
+
+    received = np.mean(received_list)
     #print(f"latency: {latency}")
     #print(energy_list)
     #energy = np.mean(energy_list)
-    time = np.mean(time)
     #print(f"lifetime: {time}")
     network.cleanUp()
     network = 0
     taskGraph = 0
     networkGraph = 0
     
-    return -time, latency
+    return -time, latency#, -received
 
 if __name__ == '__main__':
 
@@ -421,11 +526,25 @@ if __name__ == '__main__':
     verbose = cmd.verbose
     tracing = cmd.tracing
     nNodes = 20
-    networkGraph = Line(nNodes)
-    taskGraph = TwoTaskWithProcessing(networkGraph)
+    #networkGraph = Line(nNodes)
+    networkGraph = Grid(nNodes = nNodes, dimx = 4, dimy = 4)
+    taskGraph = TwoTaskWithProcessing(networkGraph, nTasks = 20)
     
+
     nWifi = int(cmd.nWifi)
+    a = []
     allocation = [x for x in range(nNodes)]
-    time, latency = evaluate(allocation, [networkGraph, taskGraph, [5]*nNodes]) 
-    print(time)
-    print(latency)
+    
+    allocation = [0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15]
+    allocation = [0, 1, 5, 8, 6, 1, 9, 4, 11, 15, 11, 8, 11, 9, 3, 7, 10, 5, 7, 15]
+    a.append([x for x in range(nNodes)])
+    a.append([0, 1, 5, 8, 6, 1, 9, 4, 11, 15, 11, 8, 11, 9, 3, 7, 10, 5, 7, 15])
+    a.append([0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15,0,15])
+    for i in a:
+        time, latency = evaluate(i, [networkGraph, taskGraph, [10]*nNodes]) 
+        print(i)
+        time, latency, en = evaluateWithEn(i, [networkGraph, taskGraph, [2]*nNodes]) 
+        print(time)
+        print(latency)
+        #print(rcv)
+        print(en)
