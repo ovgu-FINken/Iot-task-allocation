@@ -1,6 +1,7 @@
 
 import ns.core
 import ns.network
+import ns.netanim
 import ns.point_to_point
 import ns.applications
 import ns.wifi

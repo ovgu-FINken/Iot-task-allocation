@@ -28,4 +28,5 @@ class InvalidNetworkException(Exception):
     pass
 
 
-
+class NetworkDeadException(Exception):
+    pass

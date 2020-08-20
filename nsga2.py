@@ -15,7 +15,6 @@
 import sys
 import array
 import random
-import json
 import numpy as np
 from math import sqrt
 import networkx as nx
@@ -25,23 +24,16 @@ from deap import benchmarks
 from deap.benchmarks.tools import diversity, convergence, hypervolume
 from deap import creator
 from deap import tools
-from network import GraphNode, Grid, Line, TwoTask, TwoTaskWithProcessing, evaluate
-import itertools
-from exceptions import NoValidNodeException
-import multiprocessing as mp
+import topologies
+from network import evaluate, checkIfAlive, remove_dead_nodes
+from collections import defaultdict, namedtuple
 
-import ns.core
-import ns.network
-import ns.point_to_point
-import ns.applications
-import ns.wifi
-import ns.lr_wpan
-import ns.mobility
-import ns.csma
-import ns.internet 
-import ns.sixlowpan
-import ns.internet_apps
-import ns.energy
+from individual import ListWithAttributes
+import itertools
+import multiprocessing as mp
+import os
+import exceptions
+import math
 
 try:
     from collections.abc import Sequence
@@ -62,7 +54,7 @@ def random_assignment(networkGraph = None, taskGraph = None):
     for i, task in enumerate(taskGraph.nodes()):
         try:
             valid_nodes = task.get_constrained_nodes(networkGraph)
-        except NoValidNodeException as e:
+        except exceptions.NoValidNodeException as e:
             print("Could not find a valid node for a task while creating random assignment")
             raise e
         node = np.random.choice(valid_nodes)
@@ -96,8 +88,8 @@ def mutRandomNode(individual, networkGraph = None, taskGraph= None, indpb= 0):
       if random.random() <=indpb:
          try:
             valid_nodes = task.get_constrained_nodes(networkGraph)
-         except NoValidNodeException as e:
-            print("Could not find a valid node for a task while creating random assignment")
+         except exceptions.NoValidNodeException as e:
+            print("Could not find a valid node for a task while mutating assignment")
             raise e
          node = np.random.choice(valid_nodes)
          node_index = nodes.index(node)
@@ -147,7 +139,7 @@ def mymutPolynomialBounded(individual, eta, low, up, indpb):
 
             x = x + delta_q * (xu - xl)
             x = min(max(x, xl), xu)
-            individual[i] = int(x)
+            individual[i] = int(round(x))
     return individual,
 
 def mycxSimulatedBinaryBounded(ind1, ind2, eta, low, up):
@@ -219,10 +211,81 @@ def mycxSimulatedBinaryBounded(ind1, ind2, eta, low, up):
     #print(f"After Crossover: {ind1} , {ind2}")
     return ind1, ind2
 
+def sortEpsilonNondominated(individuals, k, first_front_only=False):
+    """Sort the first *k* *individuals* into different nondomination levels
+    using the "Fast Nondominated Sorting Approach" proposed by Deb et al.,
+    see [Deb2002]_. This algorithm has a time complexity of :math:`O(MN^2)`,
+    where :math:`M` is the number of objectives and :math:`N` the number of
+    individuals.
+    :param individuals: A list of individuals to select from.
+    :param k: The number of individuals to select.
+    :param first_front_only: If :obj:`True` sort only the first front and
+                             exit.
+    :returns: A list of Pareto fronts (lists), the first list includes
+              nondominated individuals.
+    .. [Deb2002] Deb, Pratab, Agarwal, and Mearivan, "A fast elitist
+       non-dominated sorting genetic algorithm for multi-objective
+       optimization: NSGA-II", 2002.
+    """
+    if k == 0:
+        return []
+    angle = 20
+    a = math.tan(math.radians(angle*2))/2
+    map_fit_ind = defaultdict(list)
+    for ind in individuals:
+        new_fit = creator.FitnessMin((ind.fitness.values[0]*1+ind.fitness.values[1]*a/1000, ind.fitness.values[1]*1/1000+ind.fitness.values[0]*a))
+        map_fit_ind[new_fit].append(ind)
+    fits = map_fit_ind.keys()
 
-def setup_ea(networkGraph = None, taskGraph = None):
-   creator.create("FitnessMixed", base.Fitness, weights=(-1.0, -1.0))
-   creator.create("Individual", list, fitness=creator.FitnessMixed)
+    current_front = []
+    next_front = []
+    dominating_fits = defaultdict(int)
+    dominated_fits = defaultdict(list)
+
+    # Rank first Pareto front
+    for i, fit_i in enumerate(fits):
+        for fit_j in list(fits)[i+1:]:
+            if fit_i.dominates(fit_j):
+                dominating_fits[fit_j] += 1
+                dominated_fits[fit_i].append(fit_j)
+            elif fit_j.dominates(fit_i):
+                dominating_fits[fit_i] += 1
+                dominated_fits[fit_j].append(fit_i)
+        if dominating_fits[fit_i] == 0:
+            current_front.append(fit_i)
+
+    fronts = [[]]
+    for fit in current_front:
+        fronts[-1].extend(map_fit_ind[fit])
+    pareto_sorted = len(fronts[-1])
+
+    # Rank the next front until all individuals are sorted or
+    # the given number of individual are sorted.
+    if not first_front_only:
+        N = min(len(individuals), k)
+        while pareto_sorted < N:
+            fronts.append([])
+            for fit_p in current_front:
+                for fit_d in dominated_fits[fit_p]:
+                    dominating_fits[fit_d] -= 1
+                    if dominating_fits[fit_d] == 0:
+                        next_front.append(fit_d)
+                        pareto_sorted += len(map_fit_ind[fit_d])
+                        fronts[-1].extend(map_fit_ind[fit_d])
+            current_front = next_front
+            next_front = []
+
+    return fronts
+
+def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20, **kwargs):
+   if kwargs['algorithm'] == 'nsga2':
+      creator.create("FitnessMin", base.Fitness, weights=(-1.0, -1.0))
+   elif kwargs['algorithm'] == 'dtas':
+      creator.create("FitnessMin", base.Fitness, weights=(1.0,))
+   else:
+      print("unrecognized algorithm")
+      return -1
+   creator.create("Individual", ListWithAttributes, fitness=creator.FitnessMin)
 
    toolbox = base.Toolbox()
    toolbox.register("assignment", random_assignment, networkGraph = networkGraph, taskGraph = taskGraph)
@@ -230,124 +293,298 @@ def setup_ea(networkGraph = None, taskGraph = None):
    #toolbox.register("allocation", random_allocation, networkGraph = networkGraph, taskGraph = taskGraph)
    #toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.allocation, n=len(taskGraph.nodes))
    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-   pool = mp.Pool()
-   toolbox.register("map", pool.starmap)
+   pool = mp.Pool(65)
+   toolbox.register("map", pool.map)
    toolbox.register("evaluate", evaluate)
    BOUND_LOW, BOUND_UP = 0.0, len(networkGraph.nodes())
    NDIM = 2
-   toolbox.register("mate", mycxSimulatedBinaryBounded, low=BOUND_LOW, up=BOUND_UP, eta=20.0)
-   toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=0.25)
-   toolbox.register("select", tools.selNSGA2)
-   pop = toolbox.population(60)
+   if kwargs['algorithm'] == 'nsga2':
+      toolbox.register("mate", mycxSimulatedBinaryBounded, low=BOUND_LOW, up=BOUND_UP, eta=eta)
+      toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=1.0/NDIM)
+      toolbox.register("select", tools.selNSGA2)
+   elif kwargs['algorithm'] == 'dtas':
+      toolbox.register("mate", tools.cxOnePoint)
+      toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=0.01)
+      toolbox.register("select", tools.selRoulette)
+   else:
+      print("unrecognized algorithm")
+      return -1
+
+   pop = toolbox.population(100)
    return pop, toolbox
 
+def evaluate_wrapper(args):
+   allocation  = args[0]
+   settings = args[1]
+   time, latency, received, energy_list = evaluate(allocation, **settings)
+   return time, latency, received, energy_list
 
 
-def main(seed=None, energy = 250, nNodes = 25):
+def main(seed=None, **kwargs):
     random.seed(seed)
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("avg", np.mean, axis=0)
     stats.register("std", np.std, axis=0)
     stats.register("min", np.min, axis=0)
     stats.register("max", np.max, axis=0)
-    NGEN = 250
-    MU = 100
+    NGEN = 200 #250
+    MU = 100 #100
     CXPB = 0.9
+    eta = 20
+    n_selected = MU if kwargs['algorithm'] == 'nsga2' else int((MU*0.8)/2)
     logbook = tools.Logbook()
     logbook.header = "gen", "evals", "std", "min", "avg", "max"
     
-    networkGraph = Line(nNodes)
-    taskGraph = TwoTaskWithProcessing(networkGraph)
-    pop, toolbox = setup_ea(networkGraph, taskGraph)
+    nNodes = kwargs['nNodes']
+    network_creator = kwargs['network_creator']
+    nTasks = kwargs['nTasks']
+    task_creator = kwargs['task_creator']
+    energy_list = kwargs['energy_list']
+    networkGraph = network_creator(**kwargs)
+    taskGraph = task_creator(networkGraph, **kwargs)   
+    
+    aliveGraph = network_creator(**kwargs)
+    remove_dead_nodes(aliveGraph, energy_list, **kwargs)
+    try:
+      pop, toolbox= setup_ea(aliveGraph, taskGraph, eta, **kwargs)
+    except exceptions.NoValidNodeException:
+      raise exceptions.NetworkDeadException
+    except exceptions.NetworkDeadException as e:
+      raise e
+    except Exception as e:
+       print(f"Error during ea setup: {e}")
+       raise e
     pop.sort(key=lambda x: x.fitness.values)
     
-
     #Evaluate the individuals with an invalid fitness
     invalid_ind = [ind for ind in pop if not ind.fitness.valid]
-    mapped = zip(invalid_ind, itertools.repeat([networkGraph,taskGraph, [energy]*nNodes]))
+    mapped = zip(invalid_ind, itertools.repeat(kwargs))
     #fitnesses = toolbox.map(toolbox.evaluate, invalid_ind, itertools.repeat([networkGraph,taskGraph, [energy]*25]))
-    fitnesses = toolbox.map(toolbox.evaluate, mapped)
+    continue_run = checkIfAlive(**kwargs)
+    if not continue_run:
+       raise exceptions.NetworkDeadException
+    try:
+      fitnesses = toolbox.map(evaluate_wrapper, mapped)
+    except exceptions.NoValidNodeException:
+      raise exceptions.NetworkDeadException
+    except exceptions.NetworkDeadException as e:
+      raise e
+    except Exception as e:
+       print(f"Error during ea gen: {e}")
+       raise e
     for ind, fit in zip(invalid_ind, fitnesses):
-        ind.fitness.values = fit
+       if kwargs['algorithm'] == 'nsga2':
+         ind.fitness.values = fit[:2]
+       elif kwargs['algorithm'] == 'dtas':
+         ind.latency = fit[1]
+         if ind.latency > len(taskGraph.nodes())*1000:
+            ind.fitness.values = -fit[0]-ind.latency/1000,
+         else:
+            ind.fitness.values = -fit[0],
+       else:
+          print("unrecognized algorithm")
+          return -1
+       ind.received = fit[2]
+       ind.energy = fit[3]
    # # This is just to assign the crowding distance to the individuals
    # # no actual selection is done
-    pop = toolbox.select(pop, len(pop))
-    
+    if kwargs['algorithm'] == 'nsga2':
+       pop = toolbox.select(pop, len(pop))
     record = stats.compile(pop)
-    logbook.record(gen=0, evals=len(invalid_ind), pop=list(pop), **record)
+    logbook.record(gen=0, evals=len(invalid_ind), **record)
     print(logbook.stream)
     # Begin the generational process
     for gen in range(1, NGEN):
         # Vary the population
-        offspring = tools.selTournamentDCD(pop, len(pop))
+        if kwargs['algorithm'] == 'nsga2':
+            offspring = tools.selTournamentDCD(pop, len(pop))
+        else:
+            offspring = toolbox.select(pop, n_selected)
+            
         offspring = [toolbox.clone(ind) for ind in offspring]
-        
         for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
+            if kwargs['verbose']:
+                print(f"parents: {ind1}  ,  {ind2}")
             if random.random() <= CXPB:
                 toolbox.mate(ind1, ind2)
+            if kwargs['verbose']:
+               print(f"children: {ind1}  ,  {ind2}")
             
             toolbox.mutate(ind1)
             toolbox.mutate(ind2)
+            if kwargs['verbose']:
+               print(f"mutated: {ind1}  ,  {ind2}")
             del ind1.fitness.values, ind2.fitness.values
         # Evaluate the individuals with an invalid fitness
         for ind in offspring:
-           repair_individual(ind, networkGraph, taskGraph)
+           repair_individual(ind, aliveGraph, taskGraph)
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-        mapped = zip(invalid_ind, itertools.repeat([networkGraph,taskGraph, [energy]*25]))
+        mapped = zip(invalid_ind, itertools.repeat(kwargs))
         #fitnesses = toolbox.map(toolbox.evaluate, invalid_ind, itertools.repeat([networkGraph,taskGraph,[energy]*25]))
-        fitnesses = toolbox.map(toolbox.evaluate, mapped)
+        try:
+          fitnesses = toolbox.map(evaluate_wrapper, mapped)
+        except exceptions.NoValidNodeException:
+          raise exceptions.NetworkDeadException
+        except exceptions.NetworkDeadException as e:
+          raise e
+        except Exception as e:
+           print(f"error during ea loop: {e}")
+           raise e
         for ind, fit in zip(invalid_ind, fitnesses):
-            ind.fitness.values = fit
-
+            if kwargs['algorithm'] == 'nsga2':
+               ind.fitness.values = fit[:2]
+            elif kwargs['algorithm'] == 'dtas':
+               ind.latency = fit[1]
+               if ind.latency > len(taskGraph.nodes())*1000:
+                  ind.fitness.values = -fit[0]-ind.latency/1000,
+               else:
+                  ind.fitness.values = -fit[0],
+            else:
+               print("unrecognized algorithm")
+               return -1
+            ind.received = fit[2]
+            ind.energy = fit[3]
         # Select the next generation population
-        pop = toolbox.select(pop + offspring, MU)
+        pop = toolbox.select(pop + offspring, len(pop))
         record = stats.compile(pop)
-        logbook.record(gen=gen, evals=len(invalid_ind), pop=list(pop), **record)
+        logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
 
     #print("Final population hypervolume is %f" % hypervolume(pop, [11.0, 11.0]))
-
-    return pop, logbook
+    if kwargs['algorithm'] == 'nsga2':
+      pfront = sortEpsilonNondominated(pop, len(pop))[0]
+      best = tools.selBest(pfront,1)
+    else:
+      best = tools.selBest(pop,1)
+    return pop, logbook, best
         
 if __name__ == "__main__":
-    import pickle
-    import time
-    cmd = ns.core.CommandLine()
-    cmd.verbose = "True"
-    cmd.nWifi = 2
-    cmd.tracing = "True"
+   import pickle
+   import time
 
-    cmd.AddValue("nWifi", "Number of WSN Nodes")
-    cmd.AddValue("verbose", "Tell echo applications to log if true")
-    cmd.AddValue("tracing", "Enable pcap tracing")
+   import ns.core
+   import ns.network
+   import ns.point_to_point
+   import ns.applications
+   import ns.wifi
+   import ns.lr_wpan
+   import ns.mobility
+   import ns.csma
+   import ns.internet 
+   import ns.sixlowpan
+   import ns.internet_apps
+   import ns.energy
+   
+   nNodes = 20
+   nTasks = 20
+   dims = 9
+   energy = 3
+   algorithm = 'dtas'
+   network_creator = topologies.Line
+   task_creator = topologies.EncodeDecode
+   if network_creator == topologies.Grid:
+      nNodes = dims**2
+   if task_creator == topologies.EncodeDecode:
+      nTasks= 19
+   energy_list = [energy]*nNodes
 
-    cmd.Parse(sys.argv)
+   settings = {'nNodes' : nNodes,
+             'network_creator' : network_creator,
+             'dimx' : dims,
+             'dimy' : dims,
+             'nTasks' : nTasks,
+             'task_creator' : task_creator,
+             'energy_list' : energy_list ,
+             'init_energy' : energy,
+             'algorithm' : algorithm,
+             'verbose' : False
+             }
 
-    verbose = cmd.verbose
-    tracing = cmd.tracing
-    
-    
-    nWifi = int(cmd.nWifi)
-    #     optimal_front = json.load(optimal_front_data)
-    # Use 500 of the 1000 points in the json file
-    # optimal_front = sorted(optimal_front[i] for i in range(0, len(optimal_front), 2))
+   def min2digits(a):
+    s = str(a)
+    if len(s) < 2:
+       s = "0" + str(a)
+    return s
+
+   if not os.path.exists(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/"):
+       os.makedirs(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/")
+   seed = 2002
+   offset = 42
+   for i in range(11):
+    print(f"Beginning iteration {i}")
+    settings = {'nNodes' : nNodes,
+             'network_creator' : network_creator,
+             'dimx' : dims,
+             'dimy' : dims,
+             'nTasks' : nTasks,
+             'task_creator' : task_creator,
+             'energy_list' : energy_list ,
+             'init_energy' : energy,
+             'verbose' : False,
+             'algorithm' : algorithm
+             }
+    print(f"Settings:")
+    for key,value in settings.items():
+       print(f"{key} : {value}")
+    if os.path.isfile(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_00.pck"):
+       continue
     start = time.time()
-    pop, stats = main(energy = 10, nNodes = 20)
-    print(f"Time Elapsed: {time.time() - start}")
-    print(stats)
-    with open("stats.pck", "wb") as f:
-      pickle.dump(stats, f)
-    with open("pop.pck", "wb") as f:
-      pickle.dump(pop, f)
+    bests = []
+    objectives = []
+    recursive = True
+    j = 0
+    if recursive:
+       while True:
+          try:
+             print("beginning new run")
+             runSeed = seed + i*offset
+             settings.update({"prefix" : runSeed})
+             pop, stats, best = main(seed = runSeed, **settings)
+             best = best[0]
+             new_energy_list = best.energy
+             print(new_energy_list)
+             settings.update({'energy_list' : new_energy_list})
+             bests.append(list(best))
+             if algorithm  == 'nsga2':
+               objectives.append(best.fitness.values)
+             else:
+               objectives.append((best.fitness.values[0], best.latency))
 
-    #print("Convergence: ", convergence(pop, optimal_front))
-    #print("Diversity: ", diversity(pop, optimal_front[0], optimal_front[-1]))
+             print(bests)
+             print(objectives)
+             print()
+             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+               pickle.dump(stats, f)
+             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+               pickle.dump(pop, f)
+             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/objectives_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+               pickle.dump(objectives, f)
+             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/bests_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+              pickle.dump(bests, f)
+             j += 1
+          except exceptions.NetworkDeadException:
+             print(f"Time Elapsed for iteration {i}: {time.time() - start}")
+             #print(stats)
+             break
+    else:
+      runSeed = seed + i*offset
+      pop, stats, best = main(seed = runSeed, **settings)
+      with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
+         pickle.dump(stats, f)
+      with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
+         pickle.dump(pop, f)
+      print(f"{time.ctime()}: Iteration {i} finished, time elapsed: {time.time() - start}")
 
-    import matplotlib.pyplot as plt
+          
 
-    front = np.array([ind.fitness.values for ind in pop])
-    #optimal_front = np.array(optimal_front)
-    #plt.scatter(optimal_front[:,0], optimal_front[:,1], c="r")
-    plt.scatter(front[:,0], front[:,1], c="b")
-    plt.axis("tight")
-    plt.show()
+   #print("Convergence: ", convergence(pop, optimal_front))
+   #print("Diversity: ", diversity(pop, optimal_front[0], optimal_front[-1]))
+
+   #import matplotlib.pyplot as plt
+
+   #front = np.array([ind.fitness.values for ind in pop])
+   #optimal_front = np.array(optimal_front)
+   #plt.scatter(optimal_front[:,0], optimal_front[:,1], c="r")
+   #plt.scatter(front[:,0], front[:,1], c="b")
+   #plt.axis("tight")
+   #plt.show()
