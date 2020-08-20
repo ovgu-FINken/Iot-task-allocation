@@ -2,7 +2,7 @@ import networkx as nx
 import numpy.linalg as la
 import numpy as np
 import exceptions
-
+import topologies
 from task import Task
 
 from itertools import combinations
@@ -153,13 +153,32 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
     assert networkGraph is not None, "Network Graph for Task Gen is None"
     Task.taskId = 1
     G = nx.OrderedDiGraph()
-    ndim = kwargs['dimx']
-    posCenter = np.array([list(networkGraph.nodes())[int(ndim/2)].pos[0]-1, list(networkGraph.nodes())[int(ndim/2)].pos[0]+1])
-    boundCenter = np.array([posCenter, np.array([-np.inf, np.inf])])
+    if kwargs['network_creator'] == topologies.Grid:
+        ndim = kwargs['dimx']
+        posCenterx = np.array([list(networkGraph.nodes())[int(ndim/2)].pos[0]-101, list(networkGraph.nodes())[int(ndim/2)].pos[0]+101])
+        posCentery = np.array([list(networkGraph.nodes())[int(ndim/2)*ndim].pos[1]-101, list(networkGraph.nodes())[int(ndim/2)*ndim].pos[1]+101])
+        boundCenter = np.array([posCenterx, posCentery])
+    else:
+        midTask = int(kwargs['nTasks']/2) #actually right task of the two middling tasks
+        #includes the left neighbor as a possible sink task
+        posCenterx = np.array([list(networkGraph.nodes())[midTask].pos[0]-101, list(networkGraph.nodes())[midTask].pos[0]+1])
+        boundCenter = np.array([posCenter, np.array([-np.inf, np.inf])])
+    center_constraint = {'location' : boundCenter}
     if verbose:
         print(f"Boundary for center: {boundCenter}")
+    
+    for i in range(kwargs['nTasks']-1):
+        G.add_node(Task())
 
+    G.add_node(Task(center_constraint))
 
+    for i in range(kwargs['nTasks']-1):
+        G.add_edge(list(G.nodes())[i], list(G.nodes())[-1])
+
+    for task in G.nodes():
+        task.set_topology(G)
+
+    return G
 
 
 
