@@ -57,6 +57,9 @@ def random_assignment(networkGraph = None, taskGraph = None):
         except exceptions.NoValidNodeException as e:
             print("Could not find a valid node for a task while creating random assignment")
             raise e
+        if len(valid_nodes) == 0:
+            print("Valid nodes empty while creating random assignment")
+            raise exceptions.NoValidNodeException
         node = np.random.choice(valid_nodes)
         node_index = nodes.index(node)
         assignment.append(node_index)
@@ -229,7 +232,7 @@ def sortEpsilonNondominated(individuals, k, first_front_only=False):
     """
     if k == 0:
         return []
-    angle = 20
+    angle = 30
     a = math.tan(math.radians(angle*2))/2
     map_fit_ind = defaultdict(list)
     for ind in individuals:
@@ -476,16 +479,18 @@ if __name__ == "__main__":
    import ns.energy
    
    nNodes = 20
-   nTasks = 20
+   nTasks = 11
    dims = 9
    energy = 3
-   algorithm = 'dtas'
-   network_creator = topologies.Line
-   task_creator = topologies.EncodeDecode
+   algorithm = 'nsga2'
+   network_creator = topologies.Grid
+   task_creator = topologies.TwoTaskWithProcessing
    if network_creator == topologies.Grid:
       nNodes = dims**2
    if task_creator == topologies.EncodeDecode:
       nTasks= 19
+   if task_creator == topologies.TwoTaskWithProcessing:
+      nTasks = 20
    energy_list = [energy]*nNodes
 
    settings = {'nNodes' : nNodes,

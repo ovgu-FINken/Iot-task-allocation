@@ -477,7 +477,7 @@ if __name__ == '__main__':
     nNodes = 20
     nTasks = 20
     dims = 9
-    energy = 10
+    energy = 3
     network_creator = topologies.Line
 
     if network_creator == topologies.Grid:
