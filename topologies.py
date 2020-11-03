@@ -93,12 +93,20 @@ def TwoTaskWithProcessing(networkGraph = None, nTasks=0, deltax = 100, **kwargs)
     return G
 
 
-def EncodeDecode(networkGraph = None, deltax = 100, deltay = 100, verbose = False, **kwargs):
+def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, verbose = False, **kwargs):
     assert networkGraph is not None, "Network Graph for Task Gen is None"
     Task.taskId = 1
     G = nx.OrderedDiGraph()
     ndim = kwargs['dimx']
-    #encoding happens on the left half of the network,  0 - int(ndim/2) 
+    #encoding happens on the left half of the network,  0 - int(ndim/2)
+    validTaskCounts = [5, 13, 19, 25, 31]
+    if nTasks ==5:
+        n_outer = 1
+        n_inner = 1
+    else:
+        n_outer = int((nTasks-1)/3)
+        n_inner = int((n_outer)/2)
+    assert nTasks in validTaskCounts, f"{nTasks} is not a valid task count for the EncodeDecode Setup!"
     posEncode = np.array([list(networkGraph.nodes())[0].pos[0]-1, list(networkGraph.nodes())[int(ndim/2)].pos[0]+1])
     boundEncode = np.array([posEncode, np.array([-np.inf, np.inf])])
     if verbose:
@@ -115,28 +123,29 @@ def EncodeDecode(networkGraph = None, deltax = 100, deltay = 100, verbose = Fals
     decode_constraint = {'location' : boundDecode}
     encode_constraint = {'location' : boundEncode}
     center_constraint = {'location' : boundCenter}
-    for i in range(6):
+    for i in range(n_outer):
         G.add_node(Task(encode_constraint))
-    for i in range(3):
+    for i in range(n_inner):
         G.add_node(Task())
     G.add_node(Task())
-    for i in range(3):
+    for i in range(n_inner):
         G.add_node(Task())
-    for i in range(6):
+    for i in range(n_outer):
         G.add_node(Task(decode_constraint))
 
     
-
-    for i in range(6):
-        for j in [6,7,8]:
+    #add edges between outer left and inner left:
+    for i in range(n_outer):
+        for j in range(n_outer, n_outer+n_inner):
             G.add_edge(list(G.nodes())[i], list(G.nodes())[j])
-
-    for i in [6,7,8]:
-        G.add_edge(list(G.nodes())[i], list(G.nodes())[9])
     
-    for i in [10,11,12]:
-        G.add_edge(list(G.nodes())[9], list(G.nodes())[i])
-        for j in [13,14,15,16,17,18]:
+    #edges between inner left and center
+    for i in range(n_outer, n_outer+n_inner):
+        G.add_edge(list(G.nodes())[i], list(G.nodes())[n_outer+n_inner])
+    
+    for i in range(n_outer+n_inner+1, n_outer+n_inner+1+n_inner):
+        G.add_edge(list(G.nodes())[n_outer+n_inner], list(G.nodes())[i])
+        for j in range(nTasks - n_outer, nTasks):
             G.add_edge(list(G.nodes())[i], list(G.nodes())[j])
         
     for task in G.nodes():
