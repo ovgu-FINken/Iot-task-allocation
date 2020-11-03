@@ -51,7 +51,8 @@ class Network:
         #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
         self.disableDAD
         self.currentAllocation = None
-        #self.enablePcap()
+        if kwargs['capture_packets']:
+            self.enablePcap()
 
 
     def buildNetworkFromGraph(self, networkGraph, mobilitySettings, verbose):
@@ -294,6 +295,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                     print(f"calculating dijkstra from {nxTask.node} to {outTask.node}")
                 path = nx.shortest_path(networkGraph, source = nxTask.node, target = outTask.node)
                 if verbose: 
+                    print(f"Path : {path}")
                     print(f"Assigned paired task to id {outTask.taskId-1}, task list length : {len(taskList)}")
                 paired_task = taskList[outTask.taskId-1]
                 if len(path) <= 2:
@@ -305,22 +307,30 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                     if verbose:
                         print("Tasks need relay task bridge")
                     relayList = []
-                    for pathNode in path:
+                    for pathNode in path[1:-1]:
                         relayTask = relayTaskFactory.Create()
                         relayTask.DoInitialize()
                         if verbose:
-                            print("Adding relayTask to {pathNode}")
+                            print(f"Adding relayTask to {pathNode}")
                         network.taskApps.Get(pathNode).AddTask(relayTask)
                         relayList.append(relayTask)
                     for i, relayTask in enumerate(relayList):
                         if i == 0:
                             nsTask.AddSuccessor(relayList[i])
                             relayTask.AddPredecessor(nsTask)
-                            relayTask.AddSuccessor(relayList[i+1])
+                            if len(relayList) > 1:
+                                # more than 1 relay task, successor is next
+                                relayTask.AddSuccessor(relayList[i+1])
+                            else:
+                                # only 1 relay task, successor is the actual receiving task
+                                relayTask.AddSuccessor(paired_task)
+                                paired_task.AddPredecessor(relayTask)
                         elif (i < len(relayList)-1):
+                            #relay task chaining
                             relayTask.AddSuccessor(relayList[i+1])
                             relayTask.AddPredecessor(relayList[i-1])
                         else:
+                            #final relay to receiving task
                             relayTask.AddSuccessor(paired_task)
                             relayTask.AddPredecessor(relayList[i-1])
                             paired_task.AddPredecessor(relayTask)

@@ -27,7 +27,7 @@ from deap import tools
 import topologies
 from network import evaluate, checkIfAlive, remove_dead_nodes
 from collections import defaultdict, namedtuple
-
+import argparse
 from individual import ListWithAttributes
 import itertools
 import multiprocessing as mp
@@ -301,8 +301,12 @@ def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20, **k
    toolbox.register("evaluate", evaluate)
    BOUND_LOW, BOUND_UP = 0.0, len(networkGraph.nodes())
    NDIM = 2
+   if kwargs['crossover'] == 'nsga2':
+      crossover = mycxSimulatedBinaryBounded
+   elif kwargs['crossover'] == 'twopoint':
+      crossover = tools.cxTwoPoint
    if kwargs['algorithm'] == 'nsga2':
-      toolbox.register("mate", mycxSimulatedBinaryBounded, low=BOUND_LOW, up=BOUND_UP, eta=eta)
+      toolbox.register("mate", crossover, low=BOUND_LOW, up=BOUND_UP, eta=eta)
       toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=1.0/NDIM)
       toolbox.register("select", tools.selNSGA2)
    elif kwargs['algorithm'] == 'dtas':
@@ -330,7 +334,7 @@ def main(seed=None, **kwargs):
     stats.register("std", np.std, axis=0)
     stats.register("min", np.min, axis=0)
     stats.register("max", np.max, axis=0)
-    NGEN = 200 #250
+    NGEN = 500 #250
     MU = 100 #100
     CXPB = 0.9
     eta = 20
@@ -478,21 +482,24 @@ if __name__ == "__main__":
    import ns.internet_apps
    import ns.energy
    
+   parser = argparse.ArgumentParser()
+   parser.add_argument('-v', action='store_true', default=False, dest='verbose')
+   args = parser.parse_args()
    nNodes = 20
-   nTasks = 11
-   dims = 9
+   nTasks = 5 #for EncodeDecode, this should fit the formula 6x+1 or be 5
+   dims = 3 #actually, row/column count
    energy = 3
    algorithm = 'nsga2'
+   crossover = 'nsga2'
+   #crossover = 'twopoint'
    network_creator = topologies.Grid
-   task_creator = topologies.TwoTaskWithProcessing
+   task_creator = topologies.EncodeDecode
    if network_creator == topologies.Grid:
       nNodes = dims**2
-   if task_creator == topologies.EncodeDecode:
-      nTasks= 19
    if task_creator == topologies.TwoTaskWithProcessing:
       nTasks = 20
    energy_list = [energy]*nNodes
-
+   
    settings = {'nNodes' : nNodes,
              'network_creator' : network_creator,
              'dimx' : dims,
@@ -502,7 +509,9 @@ if __name__ == "__main__":
              'energy_list' : energy_list ,
              'init_energy' : energy,
              'algorithm' : algorithm,
-             'verbose' : False
+             'crossover' : crossover,
+             'verbose' : args.verbose,
+             'capture_packets' : False,
              }
 
    def min2digits(a):
@@ -515,7 +524,7 @@ if __name__ == "__main__":
        os.makedirs(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/")
    seed = 2002
    offset = 42
-   for i in range(11):
+   for i in range(1):
     print(f"Beginning iteration {i}")
     settings = {'nNodes' : nNodes,
              'network_creator' : network_creator,
@@ -525,9 +534,12 @@ if __name__ == "__main__":
              'task_creator' : task_creator,
              'energy_list' : energy_list ,
              'init_energy' : energy,
-             'verbose' : False,
-             'algorithm' : algorithm
+             'algorithm' : algorithm,
+             'crossover' : crossover,
+             'verbose' : args.verbose,
+             'capture_packets' : False
              }
+
     print(f"Settings:")
     for key,value in settings.items():
        print(f"{key} : {value}")
