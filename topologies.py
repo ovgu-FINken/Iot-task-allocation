@@ -44,8 +44,6 @@ def Line(nNodes = 25, deltax = 100, energy_list = [1000]*25, **kwargs):
             G.add_edge(node1,node2)
     return G
 
-
-
 def TwoTask(networkGraph, deltax = 100):
     #reset global taskId counter
     Task.taskId = 1
@@ -188,6 +186,16 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
         task.set_topology(G)
 
     return G
+
+network_topologies = { 'Grid' : Grid,
+                       'Line' : Line
+                       }
+
+task_topologies = { 'TwoTask' : TwoTask,
+                    'TwoTaskWithProcessing' : TwoTaskWithProcessing,
+                    'EncodeDecode' : EncodeDecode,
+                    'OneSink' : OneSink
+                    }
 
 
 

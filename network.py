@@ -47,7 +47,7 @@ class Network:
             i += 1
         self.sixLowPanContainer = self.initSixLowPan(verbose)
         self.ipv6Interfaces = self.initIpv6(verbose = verbose, **kwargs)
-        self.taskApps = self.InstallTaskApps()
+        self.taskApps = self.InstallTaskApps(**kwargs)
         #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
         self.disableDAD
         self.currentAllocation = None
@@ -135,8 +135,8 @@ class Network:
             icmpv6.SetAttribute("DAD", ns.core.BooleanValue(False))
 
     
-    def InstallTaskApps(self):
-        taskHelper = ns.applications.TaskHelper()
+    def InstallTaskApps(self, enable_errors = True, error_scale = 1.0, error_shape=1.0, **unused_settings):
+        taskHelper = ns.applications.TaskHelper(enable_errors,error_scale,error_shape)
         taskApps = taskHelper.Install(self.nodeContainer)
         return taskApps
     
@@ -191,6 +191,13 @@ class Network:
                 if task.GetTypeId() == actTaskId:
                     latency_list.append(task.GetAverageLatency())
     
+    def getNodeStatus(self):
+        ctrlTaskId = ns.core.TypeId.LookupByName("ns3::ControlTask")
+        for i in range(self.taskApps.GetN()):
+            for task in self.taskApps.Get(i).GetTasks():
+                if task.GetTypeId() == ctrlTaskId:
+                    return task.GetNetworkState()
+
     def getPackagesSent(self, packages_sent = []):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
         for i in range(self.taskApps.GetN()):
@@ -234,6 +241,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
     controlTaskFactory.SetTypeId("ns3::ControlTask")
     
     controlTask = controlTaskFactory.Create()
+    network.controlTask = controlTask
     real_allocation = [(0,[0])]
     for i, alloc in enumerate(allocation):
         real_allocation.append((i+1,[alloc]))
@@ -352,9 +360,6 @@ def remove_dead_nodes(graph, energy, **kwargs):
             to_remove.append(node)
     graph.remove_nodes_from(to_remove)
 
-
-
-
 def checkIfAlive(allocation = [], verbose = False, **kwargs):
     #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
     if verbose:
@@ -362,9 +367,9 @@ def checkIfAlive(allocation = [], verbose = False, **kwargs):
     time = 0
     latency = 0
     nNodes = kwargs['nNodes']
-    network_creator = kwargs['network_creator']
+    network_creator = topologies.network_topologies[kwargs['network_creator']]
     nTasks = kwargs['nTasks']
-    task_creator = kwargs['task_creator']
+    task_creator = topologies.task_topologies[kwargs['task_creator']]
     energy_list = kwargs['energy_list']
     init_energy = kwargs['init_energy']
     networkGraph = network_creator(**kwargs)
@@ -391,9 +396,9 @@ def evaluate(allocation = [], **kwargs):
     time = 0
     latency = 0
     nNodes = kwargs['nNodes']
-    network_creator = kwargs['network_creator']
+    network_creator = topologies.network_topologies[kwargs['network_creator']]
     nTasks = kwargs['nTasks']
-    task_creator = kwargs['task_creator']
+    task_creator = topologies.task_topologies[kwargs['task_creator']]
     energy_list = kwargs['energy_list']
     networkGraph = network_creator(**kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   

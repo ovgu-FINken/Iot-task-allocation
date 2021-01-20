@@ -23,7 +23,6 @@ dims = 2
 energy = 100
 network_creator = topologies.Line
 task_creator = topologies.TwoTaskWithProcessing
-
 energy_list = [energy]*nNodes
 
 settings = {'nNodes' : nNodes,
@@ -34,21 +33,32 @@ settings = {'nNodes' : nNodes,
          'task_creator' : task_creator,
          'energy_list' : energy_list ,
          'init_energy' : energy,
-         'verbose' : False,
-         'capture_packets' : True
+         'verbose' : True,
+         'capture_packets' : True,
+         'enable_errors' : True,
+         'error_shape' : 1.0,
+         'error_scale' : 1.0
          }
 
 networkGraph = network_creator(**settings)
+print(nx.to_dict_of_lists(networkGraph))
 task_graph = task_creator(networkGraph, **settings)
 net = network.Network(networkGraph, **settings)
-allocation = [0,2]
+allocation = [0,nNodes-1]
 
 
 network.createTasksFromGraph(net, task_graph, allocation, **settings)
 
-print(net)
-print(list(task_graph))
+nodetasks = net.taskApps.Get(0).GetTasks()
 
+n2 = nx.convert_node_labels_to_integers(networkGraph)
+edgelist = nx.generate_edgelist(n2, data=False)
+edge_export = []
+for pair in edgelist:
+    nodes = pair.split(' ')
+    edge_export.append(int(nodes[0]))
+    edge_export.append(int(nodes[1]))
+net.controlTask.UpdateGraph(edge_export)
 
 latency_list = []
 received_list = []
