@@ -35,6 +35,7 @@ import os
 import exceptions
 import math
 
+
 try:
     from collections.abc import Sequence
 except ImportError:
@@ -280,6 +281,8 @@ def sortEpsilonNondominated(individuals, k, first_front_only=False):
 
     return fronts
 
+
+
 def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20, **kwargs):
    if kwargs['algorithm'] == 'nsga2':
       creator.create("FitnessMin", base.Fitness, weights=(-1.0, -1.0))
@@ -288,25 +291,30 @@ def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20, **k
    else:
       print("unrecognized algorithm")
       return -1
-   creator.create("Individual", ListWithAttributes, fitness=creator.FitnessMin)
 
+   creator.create("Individual", ListWithAttributes, fitness=creator.FitnessMin)
+   
+poolSize = 65
+popSize = 100
+def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, **kwargs):
    toolbox = base.Toolbox()
    toolbox.register("assignment", random_assignment, networkGraph = networkGraph, taskGraph = taskGraph)
    toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.assignment)
    #toolbox.register("allocation", random_allocation, networkGraph = networkGraph, taskGraph = taskGraph)
    #toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.allocation, n=len(taskGraph.nodes))
    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-   pool = mp.Pool(65)
+   pool = mp.Pool(poolSize)
    toolbox.register("map", pool.map)
    toolbox.register("evaluate", evaluate)
    BOUND_LOW, BOUND_UP = 0.0, len(networkGraph.nodes())
    NDIM = 2
    if kwargs['crossover'] == 'nsga2':
       crossover = mycxSimulatedBinaryBounded
+      toolbox.register("mate", crossover, low=BOUND_LOW, up=BOUND_UP, eta=eta)
    elif kwargs['crossover'] == 'twopoint':
       crossover = tools.cxTwoPoint
+      toolbox.register("mate", crossover)
    if kwargs['algorithm'] == 'nsga2':
-      toolbox.register("mate", crossover, low=BOUND_LOW, up=BOUND_UP, eta=eta)
       toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=1.0/NDIM)
       toolbox.register("select", tools.selNSGA2)
    elif kwargs['algorithm'] == 'dtas':
@@ -316,25 +324,31 @@ def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20, **k
    else:
       print("unrecognized algorithm")
       return -1
-
-   pop = toolbox.population(100)
+   row_alloc = creator.Individual([i for i in range(kwargs['nTasks'])])
+   zero_alloc = creator.Individual([0]*nTasks)
+   rev_alloc = creator.Individual([nTasks-(i+1) for i in range(kwargs['nTasks'])])
+   pop = toolbox.population(popSize-3)
+   pop.append(repair_individual(row_alloc, networkGraph, taskGraph))
+   pop.append(repair_individual(zero_alloc, networkGraph, taskGraph))
+   pop.append(repair_individual(rev_alloc, networkGraph, taskGraph))
    return pop, toolbox
 
 def evaluate_wrapper(args):
    allocation  = args[0]
    settings = args[1]
-   time, latency, received, energy_list = evaluate(allocation, **settings)
-   return time, latency, received, energy_list
+   time, latency, received, energy_list, node_status = evaluate(allocation, **settings)
+   return time, latency, received, energy_list, node_status
 
 
 def main(seed=None, **kwargs):
     random.seed(seed)
+    np.random.seed(seed)
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("avg", np.mean, axis=0)
     stats.register("std", np.std, axis=0)
     stats.register("min", np.min, axis=0)
     stats.register("max", np.max, axis=0)
-    NGEN = 500 #250
+    NGEN = 250
     MU = 100 #100
     CXPB = 0.9
     eta = 20
@@ -343,9 +357,9 @@ def main(seed=None, **kwargs):
     logbook.header = "gen", "evals", "std", "min", "avg", "max"
     
     nNodes = kwargs['nNodes']
-    network_creator = kwargs['network_creator']
+    network_creator = topologies.network_topologies[kwargs['network_creator']]
     nTasks = kwargs['nTasks']
-    task_creator = kwargs['task_creator']
+    task_creator = topologies.task_topologies[kwargs['task_creator']]
     energy_list = kwargs['energy_list']
     networkGraph = network_creator(**kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   
@@ -353,7 +367,7 @@ def main(seed=None, **kwargs):
     aliveGraph = network_creator(**kwargs)
     remove_dead_nodes(aliveGraph, energy_list, **kwargs)
     try:
-      pop, toolbox= setup_ea(aliveGraph, taskGraph, eta, **kwargs)
+      pop, toolbox= setup_run(aliveGraph, taskGraph, eta, **kwargs)
     except exceptions.NoValidNodeException:
       raise exceptions.NetworkDeadException
     except exceptions.NetworkDeadException as e:
@@ -393,6 +407,7 @@ def main(seed=None, **kwargs):
           return -1
        ind.received = fit[2]
        ind.energy = fit[3]
+       ind.node_status=fit[4]
    # # This is just to assign the crowding distance to the individuals
    # # no actual selection is done
     if kwargs['algorithm'] == 'nsga2':
@@ -410,17 +425,16 @@ def main(seed=None, **kwargs):
             
         offspring = [toolbox.clone(ind) for ind in offspring]
         for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
-            if kwargs['verbose']:
-                print(f"parents: {ind1}  ,  {ind2}")
-            if random.random() <= CXPB:
-                toolbox.mate(ind1, ind2)
-            if kwargs['verbose']:
-               print(f"children: {ind1}  ,  {ind2}")
-            
+        #    if kwargs['verbose']:
+        #        print(f"parents: {ind1}  ,  {ind2}")
+        #    if random.random() <= CXPB:
+        #        toolbox.mate(ind1, ind2)
+        #    if kwargs['verbose']:
+        #       print(f"children: {ind1}  ,  {ind2}")
             toolbox.mutate(ind1)
             toolbox.mutate(ind2)
-            if kwargs['verbose']:
-               print(f"mutated: {ind1}  ,  {ind2}")
+        #    if kwargs['verbose']:
+        #       print(f"mutated: {ind1}  ,  {ind2}")
             del ind1.fitness.values, ind2.fitness.values
         # Evaluate the individuals with an invalid fitness
         for ind in offspring:
@@ -451,18 +465,25 @@ def main(seed=None, **kwargs):
                return -1
             ind.received = fit[2]
             ind.energy = fit[3]
+            ind.node_status = fit[4]
         # Select the next generation population
         pop = toolbox.select(pop + offspring, len(pop))
         record = stats.compile(pop)
         logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
-
+    
     #print("Final population hypervolume is %f" % hypervolume(pop, [11.0, 11.0]))
     if kwargs['algorithm'] == 'nsga2':
       pfront = sortEpsilonNondominated(pop, len(pop))[0]
       best = tools.selBest(pfront,1)
     else:
       best = tools.selBest(pop,1)
+    #print("---")
+    #print(pop)
+    #print("---")
+    #print(logbook)
+    #print("---")
+    #print(best)
     return pop, logbook, best
         
 if __name__ == "__main__":
@@ -482,24 +503,28 @@ if __name__ == "__main__":
    import ns.internet_apps
    import ns.energy
    
+   import sqlalchemy as sql
+   import pandas as pd 
+   import json
    parser = argparse.ArgumentParser()
    parser.add_argument('-v', action='store_true', default=False, dest='verbose')
    args = parser.parse_args()
    nNodes = 20
-   nTasks = 5 #for EncodeDecode, this should fit the formula 6x+1 or be 5
-   dims = 3 #actually, row/column count
+   nTasks = 10#for EncodeDecode, this should fit the formula 6x+1 or be 5
+   dims =  9#actually, row/column count
    energy = 3
    algorithm = 'nsga2'
    crossover = 'nsga2'
-   #crossover = 'twopoint'
-   network_creator = topologies.Grid
-   task_creator = topologies.EncodeDecode
-   if network_creator == topologies.Grid:
+   crossover = 'nsga2'
+   network_creator = 'Grid'
+   task_creator = 'OneSink'
+   if network_creator == 'Grid':
       nNodes = dims**2
-   if task_creator == topologies.TwoTaskWithProcessing:
-      nTasks = 20
+   if task_creator == 'TwoTaskWithProcessing':
+      nTasks = 10
    energy_list = [energy]*nNodes
-   
+   network_status = [1]*nNodes
+      
    settings = {'nNodes' : nNodes,
              'network_creator' : network_creator,
              'dimx' : dims,
@@ -512,6 +537,10 @@ if __name__ == "__main__":
              'crossover' : crossover,
              'verbose' : args.verbose,
              'capture_packets' : False,
+             'enable_errors' : False,
+             'error_shape' : 1.0,
+             'error_scale' : 1.0,
+             'network_status' : network_status
              }
 
    def min2digits(a):
@@ -520,13 +549,15 @@ if __name__ == "__main__":
        s = "0" + str(a)
     return s
 
-   if not os.path.exists(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/"):
-       os.makedirs(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/")
+   if not os.path.exists(f"results/{algorithm}/{network_creator}/{task_creator}/"):
+       os.makedirs(f"results/{algorithm}/{network_creator}/{task_creator}/")
    seed = 2002
    offset = 42
-   for i in range(1):
+   for i in range(11):
     print(f"Beginning iteration {i}")
-    settings = {'nNodes' : nNodes,
+    settings = {
+             'experiment' : 'mota',
+             'nNodes' : nNodes,
              'network_creator' : network_creator,
              'dimx' : dims,
              'dimy' : dims,
@@ -537,19 +568,27 @@ if __name__ == "__main__":
              'algorithm' : algorithm,
              'crossover' : crossover,
              'verbose' : args.verbose,
-             'capture_packets' : False
+             'capture_packets' : False,
+             'enable_errors' : False,
+             'error_shape' : 1.0,
+             'error_scale' : 1.0,
+             'network_status' : network_status
              }
 
     print(f"Settings:")
     for key,value in settings.items():
        print(f"{key} : {value}")
-    if os.path.isfile(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_00.pck"):
-       continue
+    #if os.path.isfile(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_00.pck"):
+       #continue
     start = time.time()
     bests = []
     objectives = []
     recursive = True
+    fronts = []
+    db = sql.create_engine('postgresql:///dweikert')
     j = 0
+    setup_ea(**settings)
+
     if recursive:
        while True:
           try:
@@ -559,9 +598,14 @@ if __name__ == "__main__":
              pop, stats, best = main(seed = runSeed, **settings)
              best = best[0]
              new_energy_list = best.energy
+             new_status_list = best.node_status
              print(new_energy_list)
+             print(new_status_list)
              settings.update({'energy_list' : new_energy_list})
+             settings.update({'network_status' : new_status_list})
              bests.append(list(best))
+             front = tools.sortNondominated(pop, len(pop), True)[0]
+             fronts.append(front)
              if algorithm  == 'nsga2':
                objectives.append(best.fitness.values)
              else:
@@ -570,25 +614,38 @@ if __name__ == "__main__":
              print(bests)
              print(objectives)
              print()
-             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+             with open(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
                pickle.dump(stats, f)
-             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+             with open(f"results/{algorithm}/{network_creator}/{task_creator}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
                pickle.dump(pop, f)
-             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/objectives_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+             with open(f"results/{algorithm}/{network_creator}/{task_creator}/objectives_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
                pickle.dump(objectives, f)
-             with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/bests_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-              pickle.dump(bests, f)
+             with open(f"results/{algorithm}/{network_creator}/{task_creator}/bests_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
+               pickle.dump(bests, f)
              j += 1
+            
+
           except exceptions.NetworkDeadException:
              print(f"Time Elapsed for iteration {i}: {time.time() - start}")
+             old_results = pd.read_sql("results", con=db)
+             min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
+             results = {'index' : min_index,
+                        'lifetime' : [sum([x[0] for x in objectives])],
+                        'latency' : [sum([x[1] for x in objectives])],
+                        'settings' : json.dumps(settings),
+                        'front' : pickle.dumps(fronts)}
+             df = pd.DataFrame(results)
+             df.set_index('index', inplace=True)
+             print(df)
+             df.to_sql('results', db, if_exists='append')
              #print(stats)
              break
     else:
       runSeed = seed + i*offset
       pop, stats, best = main(seed = runSeed, **settings)
-      with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
+      with open(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
          pickle.dump(stats, f)
-      with open(f"results/{algorithm}/{network_creator.__name__}/{task_creator.__name__}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
+      with open(f"results/{algorithm}/{network_creator}/{task_creator}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
          pickle.dump(pop, f)
       print(f"{time.ctime()}: Iteration {i} finished, time elapsed: {time.time() - start}")
 
