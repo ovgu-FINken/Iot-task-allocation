@@ -40,8 +40,9 @@ def get_data(alg = 'nsga2', net = 'Grid', task = 'EncodeDecode', nNodes = 81, nT
 
 def makeplot(x, y, hue, data, net=None, dodge = False, widths = 0.3):
     kwargs = {'widths' : widths}
-    ax = sns.boxplot(x=x, y=y, hue=hue, data=data[data['net'] == net])
-    
+    if net == 'Grid':
+        data = data[data['task'] != 'TwoTaskWithProcessing']
+    ax = sns.boxplot(x=x, y=y, hue=hue, data=data[data['net'] == net], palette=['limegreen','cornflowerblue'])
     filepath = f"results/plots/"
     if not os.path.exists(filepath):
         os.mkdir(filepath)
@@ -57,7 +58,7 @@ def makeplot(x, y, hue, data, net=None, dodge = False, widths = 0.3):
         ax.set_yscale("log")
     plt.xlabel(f"Task Setup")
     plt.ylabel(f"{y} (s)")
-    plt.title(f"{net}_{task}")
+    plt.title("")#(f"{net}_{task}")
     plt.savefig(f"{filepath}NSGAIIvDTAS_{net}_{y}")
     plt.show()
 

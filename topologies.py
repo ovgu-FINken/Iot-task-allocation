@@ -17,8 +17,11 @@ class GraphNode:
     def __str__(self):
         return(f"Graphnode at: {self.pos} with energy: {self.energy}")
 
-def Grid(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[1000]*25, **kwargs):
+def Grid(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], **kwargs):
     "Create a  grid network with a 4-neighborhood"
+    if len(energy_list) == 0:
+        print("no energy list supplied for grid creation, aborting")
+        return None
     x=0
     y=0
     G=nx.OrderedGraph()

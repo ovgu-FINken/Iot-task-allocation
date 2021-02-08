@@ -47,7 +47,7 @@ class Network:
             i += 1
         self.sixLowPanContainer = self.initSixLowPan(verbose)
         self.ipv6Interfaces = self.initIpv6(verbose = verbose, **kwargs)
-        self.taskApps = self.InstallTaskApps(**kwargs)
+        self.taskApps = self.InstallTaskApps(verbose = verbose, **kwargs)
         #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
         self.disableDAD
         self.currentAllocation = None
@@ -79,15 +79,19 @@ class Network:
 
     def initLrWpan(self, PanID = 0, verbose = False):
         lrWpanDeviceContainer = self.lrWpanHelper.Install(self.nodeContainer)
-        self.lrWpanHelper.AssociateToPan(lrWpanDeviceContainer, PanID)
+        #self.lrWpanHelper.AssociateToPan(lrWpanDeviceContainer, PanID)
         if verbose:
             print(f"Creating {lrWpanDeviceContainer.GetN()} lr wpan devices")
         for i in range(lrWpanDeviceContainer.GetN()):
             lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnSlottedCsmaCa()
             lrWpanDeviceContainer.Get(i).GetMac().SetMacMaxFrameRetries(0)
-            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMaxBE(20)
-            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMinBE(4)
-            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnitBackoffPeriod(25)
+            #tmp = ns.core.BooleanValue(False)
+            lrWpanDeviceContainer.Get(i).SetAttribute("UseAcks", ns.core.BooleanValue(False))
+            #lrWpanDeviceContainer.Get(i).GetAttribute("UseAcks", tmp)
+            #print(tmp)
+            #lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMaxBE(5)
+            #lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMinBE(4)
+            #lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnitBackoffPeriod(25)
         return lrWpanDeviceContainer 
 
     def initEnergy(self, node, nodeIndex, verbose):
@@ -135,9 +139,21 @@ class Network:
             icmpv6.SetAttribute("DAD", ns.core.BooleanValue(False))
 
     
-    def InstallTaskApps(self, enable_errors = True, error_scale = 1.0, error_shape=1.0, **unused_settings):
+    def InstallTaskApps(self, verbose = False, enable_errors = True, error_scale = 1.0, error_shape=1.0, network_status=[], **unused_settings):
+        if verbose:
+            print("Installing Task Apps")
         taskHelper = ns.applications.TaskHelper(enable_errors,error_scale,error_shape)
         taskApps = taskHelper.Install(self.nodeContainer)
+        #print(f"setting network status: {network_status}")
+        for i in range(taskApps.GetN()):
+            taskApps.Get(i).SetNetworkStatus(network_status)
+
+        ngraph = nx.convert_node_labels_to_integers(self.networkGraph)
+        for node in ngraph:
+            nbrs = ngraph.neighbors(node)
+            for n in nbrs:
+                taskApps.Get(node).AddNeighbour(taskApps.Get(n))
+
         return taskApps
     
     def InstallTasks(self, taskGraph, allocation):
@@ -146,7 +162,7 @@ class Network:
         
 
     def enablePcap(self):
-        self.lrWpanHelper.EnablePcapAll("network-wrapper", True)
+        self.lrWpanHelper.EnablePcapAll("wrap-network", True)
         
 
     def deactivateNode(self, nodeId = 0):
@@ -191,27 +207,44 @@ class Network:
                 if task.GetTypeId() == actTaskId:
                     latency_list.append(task.GetAverageLatency())
     
-    def getNodeStatus(self):
+    def getNodeStatus(self, node_status = []):
         ctrlTaskId = ns.core.TypeId.LookupByName("ns3::ControlTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == ctrlTaskId:
-                    return task.GetNetworkState()
+                    taskApp = self.taskApps.Get(i)
+                    for j in range(self.taskApps.GetN()):
+                        status = taskApp.GetNodeState(j)
+                        if (status):
+                        #GetState returns m_disabled, so 1 means its off
+                            node_status.append(0)
+                        else:
+                            node_status.append(1)
+                    return
 
-    def getPackagesSent(self, packages_sent = []):
+    def getPackagesSent(self, packages_sent = [], send_sent = []):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == sendTaskId:
                     packages_sent.append(task.GetPackagesSent())
+                    send_sent.append(task.GetNSent())
                     return
 
-    def getPackagesReceived(self, packages_received = []):
+    def getPackagesReceived(self, packages_received = [], act_received = []):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::ActuatingTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == sendTaskId:
                     packages_received.append(task.GetPackagesReceived())
+                    act_received.append(task.GetNReceived())
+                    return
+    def sendAllocationMessages(self):
+        sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
+        for i in range(self.taskApps.GetN()):
+            for task in self.taskApps.Get(i).GetTasks():
+                if task.GetTypeId() == sendTaskId:
+                    task.Send("AllocationMessage")
                     return
 
     def __str__(self):
@@ -222,6 +255,26 @@ class Network:
             retVal += f"Device {i}: \n {mob.GetPosition()} \n {self.ipv6Interfaces.GetAddress(i,0)} \n {self.ipv6Interfaces.GetAddress(i,1)} \n"
         return retVal 
 
+    def cleanUp(self):
+        del self.networkGraph
+        self.networkGraph = 0
+        del self.controlTask
+        self.controlTask = 0
+        del self.nodeContainer
+        self.nodeContainer = 0
+        del self.mobilityHelper
+        self.mobilityHelper = 0
+        del self.lrWpanHelper
+        self.lrWpanHelper = 0
+        del self.lrWpanDeviceContainer
+        self.lrWpanDeviceContainer = 0
+        del self.energyContainerList
+        self.energyContainerList = 0
+        del self.sixLowPanContainer
+        self.initSixLowPanContainer = 0
+        del self.taskApps
+        self.taskApps = 0
+
 
 def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unused_settings):
     procTaskFactory = ns.core.ObjectFactory()
@@ -229,7 +282,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
 
     sendTaskFactory = ns.core.ObjectFactory()
     sendTaskFactory.SetTypeId("ns3::SendTask")
-    sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(5.0)))
+    #sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(5.0)))
 
     actTaskFactory = ns.core.ObjectFactory()
     actTaskFactory.SetTypeId("ns3::ActuatingTask")
@@ -342,21 +395,26 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                             relayTask.AddSuccessor(paired_task)
                             relayTask.AddPredecessor(relayList[i-1])
                             paired_task.AddPredecessor(relayTask)
+                    for task in relayList:
+                        task = 0
+                    relayList = 0
             except Exception as e:
                 print(f"Error during task dependency creation: {e} ")
                 raise e
+    for task in taskList:
+        task = 0
     taskList = []
     controlTask = 0                
     if verbose:
         print("Finished task creation")
 
 
-
-
-def remove_dead_nodes(graph, energy, **kwargs):
+def remove_dead_nodes(graph, energy, energy_only=False, **kwargs):
     to_remove = []
-    for node in graph.nodes():
+    for i,node in enumerate(list(graph.nodes())):
         if node.energy <= 0.1*kwargs['init_energy']:
+            to_remove.append(node)
+        elif not kwargs['network_status'][i] and not energy_only:
             to_remove.append(node)
     graph.remove_nodes_from(to_remove)
 
@@ -370,39 +428,175 @@ def checkIfAlive(allocation = [], verbose = False, **kwargs):
     network_creator = topologies.network_topologies[kwargs['network_creator']]
     nTasks = kwargs['nTasks']
     task_creator = topologies.task_topologies[kwargs['task_creator']]
-    energy_list = kwargs['energy_list']
+    energy_list = kwargs['energy_list_sim']
+    node_status = kwargs['network_status']
     init_energy = kwargs['init_energy']
-    networkGraph = network_creator(**kwargs)
+    networkGraph = network_creator(energy_list = energy_list, **kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   
     to_remove = []
-    for node in networkGraph.nodes():
+    for i,node in enumerate(list(networkGraph.nodes())):
         if node.energy < 0.1*init_energy:
+            to_remove.append(node)
+        elif not node_status[i]:
             to_remove.append(node)
     networkGraph.remove_nodes_from(to_remove)
     if len(networkGraph.nodes()) < 1:
         print("network has 0 nodes left")
         return False
     if not(nx.is_connected(networkGraph)):
-        print("network is no linger connected")
+        print(f"network is no longer connected: \
+                \n   status: {kwargs['network_status']} \
+                \n   energies: {kwargs['energy_list_sim']} \
+                " )
         return False
     return True
 
-
-def evaluate(allocation = [], **kwargs):
+def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
     verbose = kwargs['verbose']
+    if not (checkIfAlive(**kwargs)):
+        raise exceptions.NetworkDeadException
     if verbose:
         print(f"Evaluating {allocation}")
+        for key,value in kwargs.items():
+            print(f"{key} : {value}")
     time = 0
     latency = 0
     nNodes = kwargs['nNodes']
     network_creator = topologies.network_topologies[kwargs['network_creator']]
     nTasks = kwargs['nTasks']
     task_creator = topologies.task_topologies[kwargs['task_creator']]
-    energy_list = kwargs['energy_list']
-    networkGraph = network_creator(**kwargs)
+    energy_list = kwargs['energy_list_eval']
+    networkGraph = network_creator(energy_list = kwargs['energy_list_eval'], **kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   
         
+    to_remove = []
+    for i,node in enumerate(networkGraph.nodes()):
+        if kwargs['energy_list_sim'][i] <= 0.1*kwargs['init_energy']:
+            to_remove.append(node)
+        elif not kwargs['network_status'][i]:
+            to_remove.append(node)
+    networkGraph.remove_nodes_from(to_remove)
+     
+    depleted_indexes = []
+    for i,energy in enumerate(kwargs['energy_list_sim']):
+        if energy <= 0.1*kwargs['init_energy'] or not kwargs['network_status'][i]:
+            depleted_indexes.append((i, energy))
+            
+
+
+
+    ns.core.LogComponentDisable("SystemMutex", ns.core.LOG_LEVEL_ALL)
+    ns.core.LogComponentDisable("Time", ns.core.LOG_LEVEL_ALL)
+    if verbose:
+        print(f"nodes left: {len(networkGraph.nodes())}")
+    try:
+        network = Network(networkGraph, **kwargs)
+    except Exception as e:
+        print(f"Error during network creation: {e}")
+        raise e
+    if verbose:
+        print(f"Creating tasks ")
+    createTasksFromGraph(network, taskGraph, allocation, **kwargs)
+    #print("Starting Simulation")
+    latency_list = []
+    received_list = []
+    actrcvd = []
+    sendsent = []
+    sent_list = []
+    energy_list = []
+    node_status = []
+    time = []
+    if verbose:
+        print("Running sim")
+    def getTime(time = []):
+        time.append(ns.core.Simulator.Now().GetSeconds())    
+    ns.core.RngSeedManager.SetRun(kwargs['run_number'])
+    ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list, sendsent)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesReceived, received_list, actrcvd)
+    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
+    ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
+    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
+    ns.core.Simulator.Schedule(ns.core.Time(1), network.sendAllocationMessages)    
+    ns.core.Simulator.Schedule(ns.core.Time(30), network.sendAllocationMessages)    
+    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(300)))
+    ns.core.Simulator.ScheduleDestroy(getTime, time)
+    ns.core.Simulator.Run()
+    ns.core.Simulator.Destroy()
+    #print(latency_list)
+    for index, energy in depleted_indexes:
+        energy_list.insert(index, energy)
+        node_status.insert(index, 0)
+    #print(f" time bef: {time}")
+    network.cleanUp()
+    del network
+    network = 0
+    
+    #the energy this exp started with
+    start_energy = kwargs['energy_list_eval']
+    #the energy actually left on the nodes
+    sim_energy = kwargs['energy_list_sim']
+    delta_energy = []
+    lifetimes = []
+    for old_en, new_en, sim_en in zip(start_energy, energy_list, sim_energy):
+        #how much energy was spent?
+        deltaT = (old_en-new_en)/time[0]
+        delta_energy.append(deltaT)
+        if deltaT > 0:
+            # how long will the energy last on the actual network?
+            lifetimes.append(sim_en/deltaT)
+    lifetime = min(lifetimes)
+
+    latency = max(latency_list)
+    missed_packages = sent_list[0] - received_list[0]
+    percentage = missed_packages/sent_list[0]
+    #print(f"sent: {sent_list[0]}")
+    #print(f"% missed: {percentage}")
+    latency += latency*percentage
+    time = np.mean(time)
+    time -= time*percentage
+    #print(f"missed packages:{missed_packages}") 
+    if max(actrcvd) == 0:
+        latency = 99999
+    received = received_list[0]
+
+    network = 0
+    if verbose:
+        print("Eval finished")
+        print(f"missed packages: {missed_packages} ({percentage}%)")
+        print(f"Lifetime: {time}")
+        print(f"Latency: {latency}")
+        print(f"Energy list: {energy_list}")
+        print(f"Node status list: {node_status}")
+    #print(f"latency: {latency}")
+    #print(energy_list)
+    #energy = np.mean(energy_list)
+    #print(f"lifetime: {time}")
+    #for some reason the network doesnt get deleted corretyl if this isnt done TODO
+
+    return -lifetime, latency, -received, energy_list, node_status, missed_packages
+    
+
+def evaluate(allocation = [], repeat = False, **kwargs):
+    #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
+    verbose = kwargs['verbose']
+    if not (checkIfAlive(**kwargs)):
+        raise exceptions.NetworkDeadException
+    if verbose:
+        print(f"Evaluating {allocation}")
+        for key,value in kwargs.items():
+            print(f"{key} : {value}")
+    time = 0
+    latency = 0
+    nNodes = kwargs['nNodes']
+    network_creator = topologies.network_topologies[kwargs['network_creator']]
+    nTasks = kwargs['nTasks']
+    task_creator = topologies.task_topologies[kwargs['task_creator']]
+    energy_list = kwargs['energy_list_sim']
+    networkGraph = network_creator(energy_list = energy_list, **kwargs)
+    taskGraph = task_creator(networkGraph, **kwargs)   
+    #print(f"enlist before eval: {energy_list}")
     to_remove = []
     for node in networkGraph.nodes():
         if node.energy <= 0.1*kwargs['init_energy']:
@@ -428,27 +622,59 @@ def evaluate(allocation = [], **kwargs):
     #print("Starting Simulation")
     latency_list = []
     received_list = []
+    actrcvd = []
+    sendsent = []
     sent_list = []
     energy_list = []
+    node_status = []
     time = []
     if verbose:
         print("Running sim")
     def getTime(time = []):
         time.append(ns.core.Simulator.Now().GetSeconds())    
+    ns.core.RngSeedManager.SetRun(kwargs['run_number'])
     ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list)
-    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list)
-    ns.core.Simulator.ScheduleDestroy(network.getPackagesReceived, received_list)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list, sendsent)
+    ns.core.Simulator.ScheduleDestroy(network.getPackagesReceived, received_list, actrcvd)
+    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
     ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
+    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
+    ns.core.Simulator.Schedule(ns.core.Time(0.5), network.sendAllocationMessages)    
+    if len(kwargs['next_alloc']) > 0 and repeat:
+        ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(20)))    
     ns.core.Simulator.ScheduleDestroy(getTime, time)
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
     #print(latency_list)
-    
-    if verbose:
-        print("Eval finished")
+    time1 = []
+    latency1 = []
+    received1 = []
+    energy_list1 = []
+    node_status1 = []
+    for index, energy in depleted_indexes:
+        energy_list.insert(index, energy)
+        node_status.insert(index, False)
+    #print(f" time bef: {time}")
+    network.cleanUp()
+    del network
+    network = 0
+    if repeat:
+        if np.mean(time) >= 20 and len(kwargs['next_alloc']) >0 :
+            kwargs.update({'energy_list_sim' : energy_list})
+            kwargs.update({'network_status' : node_status})
+            if verbose:
+                print("starting repeat run")
+            if not (checkIfAlive(**kwargs)):
+                raise exceptions.NetworkDeadException
+            try:
+                time1, latency1, received1, energy_list1, node_status1, missed1 = evaluate(kwargs['next_alloc'], repeat=False, **kwargs)
+            except Exception as e:
+                print(f"Error during repeat run: {e}")
+                raise e
+        
+
+
     latency = max(latency_list)
-    #print(sent_list)
-    #print(received_list)
     missed_packages = sent_list[0] - received_list[0]
     percentage = missed_packages/sent_list[0]
     #print(f"sent: {sent_list[0]}")
@@ -456,20 +682,34 @@ def evaluate(allocation = [], **kwargs):
     latency += latency*percentage
     time = np.mean(time)
     time -= time*percentage
-    #print(time)
     #print(f"missed packages:{missed_packages}") 
-    if latency == 0:
+    if max(actrcvd) == 0:
         latency = 99999
-
-    for index, energy in depleted_indexes:
-        energy_list.insert(index, energy)
-    
     received = received_list[0]
+        
+    if repeat and np.mean(time) >= 20:
+        latency =max(latency,latency1)
+        time = time + time1
+        received += received1
+        energy_list = energy_list1
+        node_status = node_status1
+        missed_packages += missed1
+
+    network = 0
+    if verbose:
+        print(f"Eval finished - repeat? {repeat}")
+        print(f"missed packages: {missed_packages} ({percentage}%)")
+        print(f"Lifetime: {time}")
+        print(f"Latency: {latency}")
+        print(f"Energy list: {energy_list}, len: {len(energy_list)}")
+        print(f"Node status list: {node_status}, len: {len(energy_list)}")
     #print(f"latency: {latency}")
     #print(energy_list)
     #energy = np.mean(energy_list)
     #print(f"lifetime: {time}")
-    return -time, latency, -received, energy_list
+    #for some reason the network doesnt get deleted corretyl if this isnt done TODO
+
+    return -time, latency, -received, energy_list, node_status, missed_packages
 
 if __name__ == '__main__':
 
