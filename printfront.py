@@ -19,6 +19,10 @@ import numpy as np
 import argparse
 from individual import ListWithAttributes
 import math
+import sqlalchemy as sql
+import pandas as pd
+
+
 
 def min2digits(a):
     s = str(a)
@@ -108,90 +112,91 @@ def sortEpsilonNondominated(individuals, k, first_front_only=False):
     return fronts
 
 
+engine = sql.create_engine('postgresql:///dweikert')
+
+
+df2 = pd.read_sql('results', engine)
+print(df2)
 
 
 
 
 
+def main():
+    args = parser.parse_args()
 
 
+    task = args.task 
+    if task == 'Line' or task == 'line':
+        task = 'TwoTaskWithProcessing'
 
+    net = args.net
+    alg = args.alg
+    nNodes = args.nodes
+    nTasks = args.tasks
 
+    nNodes = min2digits(nNodes)
+    nTasks = min2digits(nTasks)
 
-args = parser.parse_args()
+    best = (-1,-1)
+    ref = (0,30000)
+    for i in range(31):
+        try:
+            with open(f"results/{alg}/{net}/Backup/{task}/stats_nodes{nNodes}_tasks{nTasks}_{min2digits(i)}_00.pck", "rb") as f:
+                stats = pickle.load(f)
+            with open(f"results/{alg}/{net}/Backup/{task}/pop_nodes{nNodes}_tasks{nTasks}_{min2digits(i)}_00.pck", "rb") as f:
+                pop = pickle.load(f)
+        #print(stats)
+        except FileNotFoundError as e:
+            break
 
-
-task = args.task 
-if task == 'Line' or task == 'line':
-    task = 'TwoTaskWithProcessing'
-
-net = args.net
-alg = args.alg
-nNodes = args.nodes
-nTasks = args.tasks
-
-nNodes = min2digits(nNodes)
-nTasks = min2digits(nTasks)
-
-best = (-1,-1)
-ref = (0,30000)
-for i in range(31):
-    try:
-        with open(f"results/{alg}/{net}/Backup/{task}/stats_nodes{nNodes}_tasks{nTasks}_{min2digits(i)}_00.pck", "rb") as f:
-            stats = pickle.load(f)
-        with open(f"results/{alg}/{net}/Backup/{task}/pop_nodes{nNodes}_tasks{nTasks}_{min2digits(i)}_00.pck", "rb") as f:
-            pop = pickle.load(f)
-    #print(stats)
-    except FileNotFoundError as e:
-        break
-
-    pop.sort(key=lambda x: x.fitness.values)
-    #print(tools.selNSGA2(pop,1))
-    #print(pop[0].fitness.values)
-    pop = [x for x in pop if x.fitness.values[1]<99999]
-    pop1 = sortEpsilonNondominated(pop, len(pop), True)
-    pops = tools.sortNondominated(pop, len(pop), True)
-    pop1 = pop1[0]
-    pops = pops[0]
-    hv = hypervolume(pop)
-    if hv > best[0]:
-        print(pop1)
-        #print(pops[0].fitness.values)
-        best = (hv,i)
-        front = np.array([ind.fitness.values for ind in pops])
-        #plt.scatter(front[:,0], front[:,1]/1000, c="b")
-        front = np.array([ind.fitness.values for ind in pop1])
-        #plt.scatter(front[:,0], front[:,1]/1000, c="r")
+        pop.sort(key=lambda x: x.fitness.values)
+        #print(tools.selNSGA2(pop,1))
+        #print(pop[0].fitness.values)
+        pop = [x for x in pop if x.fitness.values[1]<99999]
+        pop1 = sortEpsilonNondominated(pop, len(pop), True)
+        pops = tools.sortNondominated(pop, len(pop), True)
+        pop1 = pop1[0]
+        pops = pops[0]
+        hv = hypervolume(pop)
+        if hv > best[0]:
+            print(pop1)
+            #print(pops[0].fitness.values)
+            best = (hv,i)
+            front = np.array([ind.fitness.values for ind in pops])
+            #plt.scatter(front[:,0], front[:,1]/1000, c="b")
+            front = np.array([ind.fitness.values for ind in pop1])
+            #plt.scatter(front[:,0], front[:,1]/1000, c="r")
+            #plt.axis("tight")
+            # plt.show()
+        #print(stats[0]['max'])
+        print(stats[-1]['min'])
+        #print(f"HV : {hypervolume(pop)}")
+        #optimal_front = np.array(optimal_front)
+        #plt.scatter(optimal_front[:,0], optimal_front[:,1], c="r")
+        #plt.scatter(front[:,0], front[:,1], c="b")
         #plt.axis("tight")
-        # plt.show()
-    #print(stats[0]['max'])
-    print(stats[-1]['min'])
-    #print(f"HV : {hypervolume(pop)}")
-    #optimal_front = np.array(optimal_front)
-    #plt.scatter(optimal_front[:,0], optimal_front[:,1], c="r")
-    #plt.scatter(front[:,0], front[:,1], c="b")
-    #plt.axis("tight")
-    #plt.show()
+        #plt.show()
 
-with open(f"results/{alg}/{net}/Backup/{task}/stats_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_00.pck", "rb") as f:
-    stats = pickle.load(f)
-with open(f"results/{alg}/{net}/Backup/{task}/pop_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_00.pck", "rb") as f:
-    pop = pickle.load(f)
-pop = [x for x in pop if x.fitness.values[1]<99999]
-pop_nondom = tools.sortNondominated(pop, len(pop), True)
-pop_nondom = pop_nondom[0]
-pop_cone = sortEpsilonNondominated(pop, len(pop), True)[0]
-pop_cone = tools.selBest(pop_cone, 1)
-front = np.array([ind.fitness.values for ind in pop_nondom])
-plt.scatter(front[:,0], front[:,1]/1000, c="b")
-front = np.array([ind.fitness.values for ind in pop_cone])
-plt.scatter(front[:,0], front[:,1]/1000, c="r")
-plt.axis("tight")
-ax = plt.gca()
-plt.grid(True)
-ax.get_xaxis().get_major_formatter().set_useOffset(False)
-plt.xlabel("NL (s)")
-plt.ylabel("Latency (s)")
-#plt.title(f"{net}_{nNodes}_{task}_{nTasks}_{min2digits(best[1])}")
-plt.savefig(f"results/plots/{net}_{task}_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_front.png")
-plt.show()
+    with open(f"results/{alg}/{net}/Backup/{task}/stats_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_00.pck", "rb") as f:
+        stats = pickle.load(f)
+    with open(f"results/{alg}/{net}/Backup/{task}/pop_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_00.pck", "rb") as f:
+        pop = pickle.load(f)
+    pop = [x for x in pop if x.fitness.values[1]<99999]
+    pop_nondom = tools.sortNondominated(pop, len(pop), True)
+    pop_nondom = pop_nondom[0]
+    pop_cone = sortEpsilonNondominated(pop, len(pop), True)[0]
+    pop_cone = tools.selBest(pop_cone, 1)
+    front = np.array([ind.fitness.values for ind in pop_nondom])
+    plt.scatter(front[:,0], front[:,1]/1000, c="b")
+    front = np.array([ind.fitness.values for ind in pop_cone])
+    plt.scatter(front[:,0], front[:,1]/1000, c="r")
+    plt.axis("tight")
+    ax = plt.gca()
+    plt.grid(True)
+    ax.get_xaxis().get_major_formatter().set_useOffset(False)
+    plt.xlabel("NL (s)")
+    plt.ylabel("Latency (s)")
+    #plt.title(f"{net}_{nNodes}_{task}_{nTasks}_{min2digits(best[1])}")
+    plt.savefig(f"results/plots/{net}_{task}_nodes{nNodes}_tasks{nTasks}_{min2digits(best[1])}_front.png")
+    plt.show()
