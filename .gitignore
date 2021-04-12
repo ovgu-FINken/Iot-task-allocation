@@ -1,7 +1,0 @@
-.DS_Store
-/bake
-*.pck
-__*
-*.pcap
-/venv
-/pybindgen

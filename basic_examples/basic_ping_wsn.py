@@ -1,10 +1,11 @@
 import ns.core
 import ns.visualizer
 import ns.network
-# import ns.netanim
+import ns.netanim
 import ns.point_to_point
 import ns.applications
 import ns.wifi
+import ns.lr_wpan
 import ns.lr_wpan
 import ns.mobility
 import ns.csma
@@ -83,16 +84,21 @@ mobility.SetPositionAllocator("ns3::GridPositionAllocator",
 #                          "Speed", ns.core.StringValue("ns3::UniformRandomVariable[Min=1.0|Max=2.0]"),
 #                          "Pause", ns.core.StringValue("ns3::ConstantRandomVariable[Constant=1.0]"))
 
-mobility.SetMobilityModel("ns3::GaussMarkovMobilityModel",
-                          "Bounds", ns.mobility.BoxValue(ns.mobility.Box(-100.0, 100.0, -100.0, 100.0, 0.0, 100.0)),
-                          "TimeStep", ns.core.TimeValue(ns.core.Seconds(1.0)),
-                          "Alpha", ns.core.DoubleValue (1.0),
-                          "MeanVelocity", ns.core.StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1.0]"),
-                          "MeanDirection", ns.core.StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=6.283185307]"),
-                          "MeanPitch", ns.core.StringValue("ns3::ConstantRandomVariable[Constant=0.0]"),
-                          "NormalVelocity", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"),
-                          "NormalDirection", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"),
-                          "NormalPitch", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"))
+#mobility.SetMobilityModel("ns3::GaussMarkovMobilityModel",
+#                          "Bounds", ns.mobility.BoxValue(ns.mobility.Box(-100.0, 100.0, -100.0, 100.0, 0.0, 100.0)),
+#                          "TimeStep", ns.core.TimeValue(ns.core.Seconds(1.0)),
+#                          "Alpha", ns.core.DoubleValue (1.0),
+#                          "MeanVelocity", ns.core.StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1.0]"),
+#                          "MeanDirection", ns.core.StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=6.283185307]"),
+#                          "MeanPitch", ns.core.StringValue("ns3::ConstantRandomVariable[Constant=0.0]"),
+#                          "NormalVelocity", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"),
+#                          "NormalDirection", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"),
+#                          "NormalPitch", ns.core.StringValue ("ns3::NormalRandomVariable[Mean=0.0|Variance=1.0|Bound=10.0]"))
+
+#mobility.SetMobilityModel("ns3::TestMobilityModel",
+#                          "Bounds", ns.mobility.RectangleValue(ns.mobility.Rectangle(-100, 100, -100, 100)))
+
+
 mobility.Install(nodes)
 
 # print(dir(ns.core))
@@ -198,7 +204,7 @@ controlFactory = ns.core.ObjectFactory()
 controlFactory.SetTypeId("ns3::ControlTask")
 c1 = controlFactory.Create()
 
-taskHelper = ns.applications.TaskHelper()
+taskHelper = ns.applications.TaskHelper(True, 1.0, 1.0)
 taskApps = taskHelper.Install(nodes)
 
 # for i in range(taskApps.GetN()):
@@ -363,6 +369,9 @@ alloc = [(0, [0]),
 ns.core.Simulator.ScheduleDestroy(printEnergy)
 ns.core.Simulator.ScheduleDestroy(printlatency)
 ns.core.Simulator.ScheduleDestroy(printTime)
+
+anime = ns.netanim.AnimationInterface("animation.xml")
+
 start = time.time()
 print("Starting Simulation")
 # ns.core.Simulator.Stop(ns.core.Seconds(20))

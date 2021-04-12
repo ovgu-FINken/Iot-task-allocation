@@ -11,6 +11,7 @@ import networkx as nx
 
 
 import ns.core
+import ns.netanim
 import ns.network
 import ns.point_to_point
 import ns.applications
@@ -64,10 +65,14 @@ class Network:
             listPosAllocator.Add(ns.core.Vector3D(node.posx, node.posy,0))
         mobilityHelper.SetPositionAllocator(listPosAllocator)
         #mobilityModel = mobilitySettings['model']
-        mobilityModel = "ns3::ConstantPositionMobilityModel"
-        assert mobilityModel == "ns3::ConstantPositionMobilityModel", f"only ConstantPositionMobilityModel supported, not {mobilityModel}"
-        mobilityHelper.SetMobilityModel(mobilityModel)
-        mobilityHelper.Install(self.nodeContainer)        
+        mobilityModel = "ns3::ManhattanMobilityModel"
+        #assert mobilityModel == "ns3::ConstantPositionMobilityModel", f"only ConstantPositionMobilityModel supported, not {mobilityModel}"
+        mobilityHelper.SetMobilityModel("ns3::ManhattanMobilityModel")
+        mobilityHelper.Install(self.nodeContainer)
+
+        if mobilityModel == "ns3::ManhattanMobilityModel":
+            mobilityHelper.LinkMobilityModels()
+
         return mobilityHelper
 
     def initNodes(self, nodeCount : int, verbose):
@@ -143,6 +148,7 @@ class Network:
         if verbose:
             print("Installing Task Apps")
         taskHelper = ns.applications.TaskHelper(enable_errors,error_scale,error_shape)
+        #taskHelper = ns.applications.TaskHelper()
         taskApps = taskHelper.Install(self.nodeContainer)
         #print(f"setting network status: {network_status}")
         for i in range(taskApps.GetN()):
@@ -522,6 +528,7 @@ def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     ns.core.Simulator.Schedule(ns.core.Time(30), network.sendAllocationMessages)    
     ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(300)))
     ns.core.Simulator.ScheduleDestroy(getTime, time)
+    anim = ns.netanim.AnimationInterface("animation.xml")
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
     #print(latency_list)
@@ -729,11 +736,11 @@ if __name__ == '__main__':
     tracing = cmd.tracing
     #networkGraph = Line(nNodes)
     
-    nNodes = 20
-    nTasks = 20
+    nNodes = 5
+    nTasks = 5
     dims = 9
     energy = 3
-    network_creator = topologies.Line
+    network_creator = 'Line'
 
     if network_creator == topologies.Grid:
         nNodes = dims**2
@@ -747,11 +754,12 @@ if __name__ == '__main__':
                 'dimx' : dims,
                 'dimy' : dims,
                 'nTasks' : nTasks,
-                'task_creator' : topologies.TwoTaskWithProcessing,
+                'task_creator' : 'TwoTaskWithProcessing',
                 'energy_list' : energy_list,
                 'init_energy' : energy,
                 'verbose' : False,
-                'algorithm' : 'nsga2'
+                'algorithm' : 'nsga2',
+                'capture_packets': True
                 }
     
     allocation = [x for x in range(nNodes)]

@@ -1,5 +1,5 @@
 #git sibmodule setup
-git checkout NS-3-integration
+#git checkout NS-3-integration
 git submodule init
 git submodule update 
 
@@ -10,7 +10,7 @@ python3 download.py
 
 curdir=$(pwd)
 cd ns3
-./waf configure --build-profile=debug --enable-examples --enable-tests
+./waf configure --build-profile=debug #--enable-examples --enable-tests
 ./waf clean
 ./waf -v
 cd $curdir
