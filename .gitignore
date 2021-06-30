@@ -1,0 +1,13 @@
+.DS_Store
+/bake
+*.pck
+__*
+*.pcap
+/venv
+/pybindgen
+*.out
+*.log
+plots/
+results/
+*.png
+*.sh
