@@ -26,7 +26,6 @@ import ns.energy
 
 
 
-
 class Network:
     def __init__(self, networkGraph = None, positionSettings = {}, mobilitySettings = {}, appSettings= {}, initEnergyJ = 100, verbose = False, **kwargs):
         assert networkGraph is not None, "Need to specify network graph!"
@@ -49,10 +48,10 @@ class Network:
         self.ipv6Interfaces = self.initIpv6(verbose = verbose, **kwargs)
         self.taskApps = self.InstallTaskApps(verbose = verbose, **kwargs)
         #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
-        self.disableDAD
+        self.disableDAD()
         self.currentAllocation = None
         if kwargs['capture_packets']:
-            self.enablePcap()
+            self.enablePcap(kwargs['pcap_filename'])
 
 
     def buildNetworkFromGraph(self, networkGraph, mobilitySettings, verbose):
@@ -79,7 +78,7 @@ class Network:
 
     def initLrWpan(self, PanID = 0, verbose = False):
         lrWpanDeviceContainer = self.lrWpanHelper.Install(self.nodeContainer)
-        #self.lrWpanHelper.AssociateToPan(lrWpanDeviceContainer, PanID)
+        self.lrWpanHelper.AssociateToPan(lrWpanDeviceContainer, PanID)
         if verbose:
             print(f"Creating {lrWpanDeviceContainer.GetN()} lr wpan devices")
         for i in range(lrWpanDeviceContainer.GetN()):
@@ -125,19 +124,39 @@ class Network:
         ipv6StackHelper.SetIpv4StackInstall(False)
         ipv6StackHelper.Install(self.nodeContainer)
         ipv6address = ns.internet.Ipv6AddressHelper()
-        ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:1::"), ns.network.Ipv6Prefix(64))
+        ipv6Interfaces = ns.internet.Ipv6InterfaceContainer()
+        #for i in range (self.sixLowPanContainer.GetN()):
+        #    netdevicecontainer = ns.network.NetDeviceContainer()
+        #    netdevicecontainer.Add(self.sixLowPanContainer.Get(i))
+        #    ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:{i+1}::"), ns.network.Ipv6Prefix(64))
+        #    if verbose:
+        #        print(f"Set Base to {ns.network.Ipv6Address(f'{prefix}:{i}::')}")
+        #    ipv6address.NewNetwork()
+        #    #ipv6interfaces = ipv6address.Assign(self.sixLowPanContainer)
+        #    ipv6Interfaces.Add(ipv6address.Assign(netdevicecontainer))
+        #ipv6interfaces.SetDefaultRouteInAllNodes(0)
+        for i in range(ipv6Interfaces.GetN()):
+            ipv6Interfaces.SetForwarding(i, False)
+        ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:{1}::"), ns.network.Ipv6Prefix(64))
         ipv6interfaces = ipv6address.Assign(self.sixLowPanContainer)
         return ipv6interfaces
 
     def disableDAD(self):
         for i in range(self.nodeContainer.GetN()):
-            icmpv6 = nodes.Get(i).GetObject(ns.internet.Icmpv6L4Protocol.GetTypeId())
-            icmpv6.SetAttribute("RetransmissionTime", ns.core.TimeValue(ns.core.Seconds(15)))
+            icmpv6 = self.nodeContainer.Get(i).GetObject(ns.internet.Icmpv6L4Protocol.GetTypeId())
+            icmpv6.SetAttribute("RetransmissionTime", ns.core.TimeValue(ns.core.Seconds(1000)))
             icmpv6.SetAttribute("DelayFirstProbe", ns.core.TimeValue(ns.core.Seconds(15)))
             icmpv6.SetAttribute("MaxMulticastSolicit", ns.core.IntegerValue(0))
             icmpv6.SetAttribute("MaxUnicastSolicit", ns.core.IntegerValue(0))
             icmpv6.SetAttribute("DAD", ns.core.BooleanValue(False))
-
+            icmpv6.SetAttribute("ReachableTime", ns.core.TimeValue(ns.core.Seconds(1000)))
+            
+            icmpv6L3 = self.nodeContainer.Get(i).GetObject(ns.internet.Ipv6L3Protocol.GetTypeId())
+            #a = ns.core.BooleanValue(True)
+            #icmpv6L3.GetAttribute("SendIcmpv6Redirect", a)
+            #print(a)
+            icmpv6L3.SetAttribute("SendIcmpv6Redirect", ns.core.BooleanValue(0))
+            
     
     def InstallTaskApps(self, verbose = False, enable_errors = True, error_scale = 1.0, error_shape=1.0, network_status=[], **unused_settings):
         if verbose:
@@ -161,8 +180,8 @@ class Network:
         #TODO
         
 
-    def enablePcap(self):
-        self.lrWpanHelper.EnablePcapAll("wrap-network", True)
+    def enablePcap(self, logname):
+        self.lrWpanHelper.EnablePcapAll(logname, True)
         
 
     def deactivateNode(self, nodeId = 0):
@@ -282,7 +301,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
 
     sendTaskFactory = ns.core.ObjectFactory()
     sendTaskFactory.SetTypeId("ns3::SendTask")
-    #sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(5.0)))
+    sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(10.0)))
 
     actTaskFactory = ns.core.ObjectFactory()
     actTaskFactory.SetTypeId("ns3::ActuatingTask")
@@ -300,6 +319,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
         real_allocation.append((i+1,[alloc]))
     
     controlTask.SetInitialAllocation(real_allocation)
+    #print(real_allocation)
     network.taskApps.Get(0).AddTask(controlTask)
     #print(real_allocation)
     networkGraph = nx.convert_node_labels_to_integers(network.networkGraph)
@@ -346,6 +366,7 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
         raise e
     if verbose:
         print("Creating task dependencies")
+    #routeHelper = ns.internet.Ipv6StaticRoutingHelper
     assert len(taskGraph.nodes) == len(taskList), "taskgraph and task list length mismatch"
     for nxTask, nsTask in zip (taskGraph.nodes(), taskList):
         assert nxTask.node is not None, "Nx task has no node"
@@ -364,6 +385,12 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                         print("tasks assigned direct neighbors or same node")
                     nsTask.AddSuccessor(paired_task)
                     paired_task.AddPredecessor(nsTask)
+                   # ipv6TypeID = ns.core.TypeId.LookupByName('ns3::Ipv6Interface')
+                   # print(ipv6TypeID)
+                   # print(network.taskApps.Get(path[0]).GetNode().GetObject(ipv6TypeID))
+                   # ipv6 = network.taskApps.Get(path[0]).GetNode().GetObject(ipv6TypeID)
+                   # routing = routeHelper.GetStaticRouting(network.ipv6Interfaces.Get(path[0]))
+                   # routing.AddHostRouteTo(GetSocketAdressFromTask(paired_task,0))
                 else:
                     if verbose:
                         print("Tasks need relay task bridge")
@@ -452,6 +479,7 @@ def checkIfAlive(allocation = [], verbose = False, **kwargs):
     return True
 
 def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
+    #return 0, 0, 0, kwargs['energy_list_eval'], kwargs['network_status'], 12
     #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
     verbose = kwargs['verbose']
     if not (checkIfAlive(**kwargs)):
@@ -518,9 +546,9 @@ def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
     ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
     ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
-    ns.core.Simulator.Schedule(ns.core.Time(1), network.sendAllocationMessages)    
-    ns.core.Simulator.Schedule(ns.core.Time(30), network.sendAllocationMessages)    
-    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(300)))
+    ns.core.Simulator.Schedule(ns.core.Time(0.5), network.sendAllocationMessages)    
+    ns.core.Simulator.Schedule(ns.core.Time(2), network.sendAllocationMessages)    
+    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(120)))
     ns.core.Simulator.ScheduleDestroy(getTime, time)
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
@@ -548,17 +576,21 @@ def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
             lifetimes.append(sim_en/deltaT)
     lifetime = min(lifetimes)
 
-    latency = max(latency_list)
+    latency = max(latency_list) if len(latency_list) > 0 else 99999
     missed_packages = sent_list[0] - received_list[0]
-    percentage = missed_packages/sent_list[0]
+    if sent_list[0] > 0:
+        percentage = missed_packages/sent_list[0]
+    else:
+        percentage = 0
     #print(f"sent: {sent_list[0]}")
     #print(f"% missed: {percentage}")
     latency += latency*percentage
     time = np.mean(time)
-    time -= time*percentage
+    lifetime -= lifetime*percentage
     #print(f"missed packages:{missed_packages}") 
-    if max(actrcvd) == 0:
-        latency = 99999
+    #if len(actrcvd) > 0:
+    #    if max(actrcvd) == 0:
+    #        latency = 99999
     received = received_list[0]
 
     network = 0
@@ -572,10 +604,9 @@ def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     #print(f"latency: {latency}")
     #print(energy_list)
     #energy = np.mean(energy_list)
-    #print(f"lifetime: {time}")
     #for some reason the network doesnt get deleted corretyl if this isnt done TODO
 
-    return -lifetime, latency, -received, energy_list, node_status, missed_packages
+    return -lifetime, latency, received, energy_list, node_status, percentage
     
 
 def evaluate(allocation = [], repeat = False, **kwargs):
@@ -640,8 +671,9 @@ def evaluate(allocation = [], repeat = False, **kwargs):
     ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
     ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
     ns.core.Simulator.Schedule(ns.core.Time(0.5), network.sendAllocationMessages)    
+    ns.core.Simulator.Schedule(ns.core.Time(2.5), network.sendAllocationMessages)    
     if len(kwargs['next_alloc']) > 0 and repeat:
-        ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(20)))    
+        ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(30)))    
     ns.core.Simulator.ScheduleDestroy(getTime, time)
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
@@ -673,28 +705,32 @@ def evaluate(allocation = [], repeat = False, **kwargs):
                 raise e
         
 
-
+    
     latency = max(latency_list)
     missed_packages = sent_list[0] - received_list[0]
-    percentage = missed_packages/sent_list[0]
+    if sent_list[0] > 0:
+        percentage = missed_packages/sent_list[0]
+    else:
+        percentage = 0
+    latency += latency*percentage
     #print(f"sent: {sent_list[0]}")
     #print(f"% missed: {percentage}")
-    latency += latency*percentage
-    time = np.mean(time)
-    time -= time*percentage
     #print(f"missed packages:{missed_packages}") 
-    if max(actrcvd) == 0:
-        latency = 99999
+    #if max(actrcvd) == 0:
+    #    latency = 99999
     received = received_list[0]
-        
-    if repeat and np.mean(time) >= 20:
-        latency =max(latency,latency1)
-        time = time + time1
+    time = time[0]
+    time -= time*percentage
+    if repeat:
+        latency =max(latency,latency1) 
+        time = time + abs(time1)
         received += received1
         energy_list = energy_list1
         node_status = node_status1
         missed_packages += missed1
-
+    
+    if latency == 0:
+        latency = 98765
     network = 0
     if verbose:
         print(f"Eval finished - repeat? {repeat}")
@@ -709,7 +745,7 @@ def evaluate(allocation = [], repeat = False, **kwargs):
     #print(f"lifetime: {time}")
     #for some reason the network doesnt get deleted corretyl if this isnt done TODO
 
-    return -time, latency, -received, energy_list, node_status, missed_packages
+    return -time, latency, received, energy_list, node_status, percentage
 
 if __name__ == '__main__':
 

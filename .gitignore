@@ -5,3 +5,8 @@ __*
 *.pcap
 /venv
 /pybindgen
+*.out
+*.log
+plots/
+*.png
+*.sh

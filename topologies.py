@@ -66,8 +66,8 @@ def TwoTask(networkGraph, deltax = 100):
 def TwoTaskWithProcessing(networkGraph = None, nTasks=0, deltax = 100, **kwargs):
     #reset global taskId counter
     assert networkGraph is not None, "Network Graph for Task Gen is None"
-    if nTasks == 0:
-        nTasks = len(networkGraph.nodes())
+    #assert nTasks > 1, "Cant create TwoTaskWithProcessing with less than 2 tasks"
+    
     Task.taskId = 1
     G = nx.OrderedDiGraph()
     pos1 = list(networkGraph.nodes())[0].pos
@@ -100,14 +100,14 @@ def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, v
     G = nx.OrderedDiGraph()
     ndim = kwargs['dimx']
     #encoding happens on the left half of the network,  0 - int(ndim/2)
-    validTaskCounts = [5, 13, 19, 25, 31]
+    validTaskCounts = [5, 13, 19, 25, 31, 37, 43,49,55,61,67,73,79]
     if nTasks ==5:
         n_outer = 1
         n_inner = 1
     else:
         n_outer = int((nTasks-1)/3)
         n_inner = int((n_outer)/2)
-    assert nTasks in validTaskCounts, f"{nTasks} is not a valid task count for the EncodeDecode Setup!"
+    assert nTasks in validTaskCounts, f"{nTasks} is not a valid task count for the EncodeDecode Setup! \n Valid Setups: {validTaskCounts}"
     posEncode = np.array([list(networkGraph.nodes())[0].pos[0]-1, list(networkGraph.nodes())[int(ndim/2)].pos[0]+1])
     boundEncode = np.array([posEncode, np.array([-np.inf, np.inf])])
     if verbose:
