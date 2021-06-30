@@ -8,5 +8,6 @@ __*
 *.out
 *.log
 plots/
+results/
 *.png
 *.sh
