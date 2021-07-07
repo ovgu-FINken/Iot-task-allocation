@@ -11,3 +11,4 @@ plots/
 results/
 *.png
 *.sh
+.vscode/
