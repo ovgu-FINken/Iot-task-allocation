@@ -462,6 +462,41 @@ def evaluate_wrapper(args):
    lifetime, latency, received, energy_list, node_status, missed = evaluate_surrogate(allocation, **settings)
    return lifetime, latency, received, energy_list, node_status
 
+def assign_fitnesses(pop,fitnesses,algorithm):
+   for ind, fit in zip(pop, fitnesses):
+           if algorithm == 'nsga2':
+               ind.fitness.values = fit[:2]
+           elif algorithm == 'rmota':
+               ind.fitness.values = fit[:2]
+           elif algorithm == 'dtas':
+               ind.fitness.values = fit[0],
+           else:
+               raise exceptions.UnrecognizedAlgorithmException
+       ind.latency = fit[1]
+       ind.received = fit[2]
+       ind.energy = fit[3]
+       ind.node_status=fit[4]
+    return pop
+def select_parents(pop, toolbox, n_selected, algorithm):
+    if algorithm == 'nsga2' or algorithm == 'rmota':
+        offspring = tools.selTournamentDCD(pop, len(pop))
+    elif algorithm =='dtas':
+        offspring = toolbox.select(pop, n_selected)
+    else:
+        raise exceptions.UnrecognizedAlgorithmException
+    return offspring
+
+def generate_offspring(offspring, toolbox, CXPB):
+    for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
+        if algorithm =='nsga2' or algorithm =='dtas':
+            if random.random() <= CXPB:
+                toolbox.mate(ind1, ind2)
+        elif algorithm=='dtas':
+            toolbox.mate(ind1,ind2)
+        toolbox.mutate(ind1)
+        toolbox.mutate(ind2)
+        del ind1.fitness.values, ind2.fitness.values
+    return offspring
 
 def main(archive = [], archivestats={}, **kwargs):
     for key,val in kwargs.items():
@@ -479,6 +514,8 @@ def main(archive = [], archivestats={}, **kwargs):
     CXPB = 0.9
     eta = 20
     n_selected = MU if (kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota') else int((MU*0.8)/2)
+    algorithm = kwargs['algorithm']
+
     logbook = tools.Logbook()
     logbook.header = "gen", "evals", "std", "min", "avg", "max"
     
@@ -519,55 +556,29 @@ def main(archive = [], archivestats={}, **kwargs):
     except Exception as e:
        print(f"Error during ea gen: {e}")
        raise e
-    for ind, fit in zip(pop, fitnesses):
-       if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota':
-         ind.fitness.values = fit[:2]
-       elif kwargs['algorithm'] == 'dtas':
-         ind.latency = fit[1]
-         ind.fitness.values = fit[0],
-       else:
-          print("unrecognized algorithm")
-          return -1
-       ind.received = fit[2]
-       ind.energy = fit[3]
-       ind.node_status=fit[4]
-   # # This is just to assign the crowding distance to the individuals
-   # # no actual selection is done
-    if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota':
+    pop = assign_fitnesses(pop, fitnesses, algorithm) 
+    #crowding distance assignment
+    if algorithm == 'nsga2'
        pop = toolbox.select(pop, len(pop))
-    if kwargs['algorithm'] == 'rmota':
+    elif 'algorithm' == 'rmota':
+       pop = toolbox.select(pop, len(pop))
        archive, archivestats = toolbox.selArchive(pop, archive, archivestats, popSize)
 
     record = stats.compile(pop)
     logbook.record(gen=0, evals=len(pop), **record)
     print(logbook.stream)
+    ################################
     # Begin the generational process
+    ###############################
     for gen in range(1, NGEN):
-        # Vary the population
-        if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota':
-            offspring = tools.selTournamentDCD(pop, len(pop))
-        else:
-            offspring = toolbox.select(pop, n_selected)
-            
+        parents = select_parents(pop, toolbox, n_selected, algorithm)
         offspring = [toolbox.clone(ind) for ind in offspring]
-        for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
-        #    if kwargs['verbose']:
-        #        print(f"parents: {ind1}  ,  {ind2}")
-        #    if random.random() <= CXPB:
-        #        toolbox.mate(ind1, ind2)
-        #    if kwargs['verbose']:
-        #       print(f"children: {ind1}  ,  {ind2}")
-            toolbox.mutate(ind1)
-            toolbox.mutate(ind2)
-        #    if kwargs['verbose']:
-        #       print(f"mutated: {ind1}  ,  {ind2}")
-            del ind1.fitness.values, ind2.fitness.values
+        offspring = generate_offspring(offspring, toolbox, CXPB)
         # Evaluate the individuals with an invalid fitness
         for ind in offspring:
            repair_individual(ind, aliveGraph, taskGraph, kwargs['network_status'])
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         mapped = zip(invalid_ind, itertools.repeat(kwargs))
-        #fitnesses = toolbox.map(toolbox.evaluate, invalid_ind, itertools.repeat([networkGraph,taskGraph,[energy]*25]))
         try:
           fitnesses = toolbox.map(evaluate_wrapper, mapped)
         except exceptions.NoValidNodeException:
@@ -577,27 +588,15 @@ def main(archive = [], archivestats={}, **kwargs):
         except Exception as e:
            print(f"error during ea loop: {e}")
            raise e
-        for ind, fit in zip(invalid_ind, fitnesses):
-            if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota':
-               ind.fitness.values = fit[:2]
-            elif kwargs['algorithm'] == 'dtas':
-               ind.latency = fit[1]
-               ind.fitness.values = fit[0],
-            else:
-               print("unrecognized algorithm")
-               return -1
-            ind.received = fit[2]
-            ind.energy = fit[3]
-            ind.node_status = fit[4]
+        assign_fitnesses(invalid_ind, fitnesses, algorithm) 
         # Select the next generation population
         pop = toolbox.select(pop + offspring, len(pop))
-        if kwargs['algorithm'] == 'rmota':
+        if algorithm == 'rmota':
            archive, archivestats = toolbox.selArchive(pop, archive, archivestats, popSize)
         record = stats.compile(pop)
         logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
     
-    #print("Final population hypervolume is %f" % hypervolume(pop, [11.0, 11.0]))
     if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] =='rmota':
       pfront = sortEpsilonNondominated(pop, len(pop))[0]
       best = tools.selBest(pfront,1)
@@ -605,12 +604,6 @@ def main(archive = [], archivestats={}, **kwargs):
       best = tools.selBest(pop,1)
     if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'dtas':
       archive = []
-    #print("---")
-    #print(pop)
-    #print("---")
-    #print(logbook)
-    #print("---")
-    #print(best)
     return pop, logbook, best, archive, archivestats
 
 def run_algorithm(index, db, **settings):  
@@ -736,7 +729,6 @@ def run_algorithm(index, db, **settings):
 if __name__ == "__main__":
    import pickle
    import time
-
    import ns.core
    import ns.network
    import ns.point_to_point
@@ -749,7 +741,6 @@ if __name__ == "__main__":
    import ns.sixlowpan
    import ns.internet_apps
    import ns.energy
-   
    import sqlalchemy as sql
    import pandas as pd 
    import json
@@ -757,258 +748,153 @@ if __name__ == "__main__":
    parser.add_argument('-v', action='store_true', default=False, dest='verbose')
    args = parser.parse_args()
    nNodes = 20
-   nTasks = 40#for EncodeDecode, this should fit the formula 6x+1 or be 5
-   dims =  9#actually, row/column count
+   nTasks = 20#for EncodeDecode, this should fit the formula 6x+1 or be 5
+   dims =  5#actually, row/column count
    energy = 100
-   algorithm = 'rmota'
-   crossover = 'nsga2'
-   crossover = 'nsga2'
-   network_creator = 'Grid'
-   task_creator = 'OneSink'
-   if network_creator == 'Grid':
-      nNodes = dims**2
-   if task_creator == 'TwoTaskWithProcessing':
-      nTasks = 10
-   energy_list = [energy]*nNodes
-   network_status = [1]*nNodes
-      
-   settings = {'nNodes' : nNodes,
-             'network_creator' : network_creator,
-             'dimx' : dims,
-             'dimy' : dims,
-             'nTasks' : nTasks,
-             'task_creator' : task_creator,
-             'energy_list_sim' : energy_list,
-             'energy_list_eval': energy_list,
-             'init_energy' : energy,
-             'algorithm' : algorithm,
-             'crossover' : crossover,
-             'verbose' : args.verbose,
-             'capture_packets' : False,
-             'enable_errors' : False,
-             'error_shape' : 1.0,
-             'error_scale' : 10,
-             'network_status' : network_status
-             }
+   for algorithm in ['rmota', 'nsga2', 'dtas']:
+       crossover = 'nsga2'
+       network_creator = 'Grid'
+       task_creator = 'OneSink'
+       if network_creator == 'Grid':
+          nNodes = dims**2
+       if task_creator == 'TwoTaskWithProcessing':
+          nTasks = 10
+       energy_list = [energy]*nNodes
+       network_status = [1]*nNodes
+          
+       settings = {'nNodes' : nNodes,
+                 'network_creator' : network_creator,
+                 'dimx' : dims,
+                 'dimy' : dims,
+                 'nTasks' : nTasks,
+                 'task_creator' : task_creator,
+                 'energy_list_sim' : energy_list,
+                 'energy_list_eval': energy_list,
+                 'init_energy' : energy,
+                 'algorithm' : algorithm,
+                 'crossover' : crossover,
+                 'verbose' : args.verbose,
+                 'capture_packets' : False,
+                 'enable_errors' : False,
+                 'error_shape' : 1.0,
+                 'error_scale' : 10,
+                 'network_status' : network_status
+                 }
 
-   def min2digits(a):
-    s = str(a)
-    if len(s) < 2:
-       s = "0" + str(a)
-    return s
-   #ngen for inital pre-run ea
-   NGEN = 100
-   if not os.path.exists(f"results/{algorithm}/{network_creator}/{task_creator}/"):
-       os.makedirs(f"results/{algorithm}/{network_creator}/{task_creator}/")
-   seed = 2086+42
-   offset = 42
-   for i in range(11):
-    #print(f"Beginning iteration {i}")
-    settings = {
-             'experiment' : 'mota',
-             'nNodes' : nNodes,
-             'network_creator' : network_creator,
-             'dimx' : dims,
-             'dimy' : dims,
-             'nTasks' : nTasks,
-             'task_creator' : task_creator,
-             'energy_list_sim' : energy_list,
-             'energy_list_eval': energy_list,
-             'init_energy' : energy,
-             'algorithm' : algorithm,
-             'crossover' : crossover,
-             'verbose' : args.verbose,
-             'capture_packets' : False,
-             'enable_errors' : False,
-             'error_shape' : 1.0,
-             'error_scale' : energy/10,
-             'network_status' : network_status,
-             'NGEN' : NGEN,
-             'run_number' : 1,
-             'next_alloc' : []
-             }
-
-    #print(f"Settings:")
-    #for key,value in settings.items():
-    #   print(f"{key} : {value}")
-    #if os.path.isfile(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_00.pck"):
-       #continue
-    bests = []
-    objectives = []
-    recursive = True
-    fronts = []
-    db = sql.create_engine('postgresql:///dweikert')
-    j = 0
-    setup_ea(**settings)
-   
-    actual_times = []
-    actual_latencies = []
-
-    #inital run:
-   
-    runSeed = seed + i*offset
-    settings.update({"prefix" : runSeed})
-    pop, stats, best, archive, archivestats = main(seed = runSeed, archive = [], archivestats = {}, **settings)
-    best = best[0]
-    settings.update({'enable_errors' : True})
-    new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(best, **settings)
-    actual_times.append(new_lifetime)
-    actual_latencies.append(new_latency)
-    settings.update({'energy_list_sim' : new_energy_list})
-    settings.update({'network_status' : new_node_status})
-    #ngen for adjusting
-    NGEN = 10
-    if settings['algorithm']=='dtas':
-       NGEN=25
-    settings.update({'NGEN' : NGEN})
-    bests.append(list(best))
-    front = tools.sortNondominated(pop, len(pop), True)[0]
-    fronts.append(front)
-    if algorithm  == 'nsga2' or algorithm =='rmota':
-      objectives.append(best.fitness.values)
-    else:
-      objectives.append((best.fitness.values[0], best.latency))
-   
-    while True:
-      try:
-        settings.update({'run_number' : j+2})
-        try:
-          new_alloc = getNewValidAssignment(best, new_node_status, archive, **settings)
-        except exceptions.NoValidNodeException:
-          raise exceptions.NetworkDeadException
-
-        if len(archive) == 0:
-          new_alloc = creator.Individual(new_alloc)
-          archive.append(new_alloc)
-        #print(new_alloc)
+       def min2digits(a):
+        s = str(a)
+        if len(s) < 2:
+           s = "0" + str(a)
+        return s
+       #ngen for inital pre-run ea
+       NGEN = 10
+       seed = 2086+42
+       offset = 42
+       settings = {
+                 'experiment' : 'mota',
+                 'nNodes' : nNodes,
+                 'network_creator' : network_creator,
+                 'dimx' : dims,
+                 'dimy' : dims,
+                 'nTasks' : nTasks,
+                 'task_creator' : task_creator,
+                 'energy_list_sim' : energy_list,
+                 'energy_list_eval': energy_list,
+                 'init_energy' : energy,
+                 'algorithm' : algorithm,
+                 'crossover' : crossover,
+                 'verbose' : args.verbose,
+                 'capture_packets' : False,
+                 'enable_errors' : False,
+                 'error_shape' : 1.0,
+                 'error_scale' : energy/10,
+                 'network_status' : network_status,
+                 'NGEN' : NGEN,
+                 'run_number' : 1,
+                 'next_alloc' : []
+                 }
+        bests = []
+        objectives = []
+        recursive = True
+        fronts = []
+        j = 0
+        setup_ea(**settings)
+       
+        actual_times = []
+        actual_latencies = []
         runSeed = seed + i*offset
         settings.update({"prefix" : runSeed})
-        settings.update({'enable_errors' : False})
-        settings.update({'NGEN' : NGEN})
-        #run for 10 iterations to find suitable new allocation
-        pop, stats, best, archive, archivestats = main(seed = runSeed, archive = archive, archivestats=archivestats, **settings)
+        pop, stats, best, archive, archivestats = main(seed = runSeed, archive = [], archivestats = {}, **settings)
         best = best[0]
-        settings.update({'next_alloc' : best})
         settings.update({'enable_errors' : True})
-        #run real sim to check next failure
-        new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(allocation = new_alloc, repeat = True, **settings)
+        new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(best, **settings)
         actual_times.append(new_lifetime)
         actual_latencies.append(new_latency)
         settings.update({'energy_list_sim' : new_energy_list})
         settings.update({'network_status' : new_node_status})
-        #print(f"runtimes so far: {actual_times}")
-        #print(f"latencies so far: {actual_latencies}")
+        #ngen for adjusting
+        NGEN = 10
+        if settings['algorithm']=='dtas':
+           NGEN=25
+        settings.update({'NGEN' : NGEN})
         bests.append(list(best))
         front = tools.sortNondominated(pop, len(pop), True)[0]
         fronts.append(front)
-        if algorithm  == 'nsga2' or algorithm == 'rmota':
+        if algorithm  == 'nsga2' or algorithm =='rmota':
           objectives.append(best.fitness.values)
         else:
           objectives.append((best.fitness.values[0], best.latency))
-         
-        #print(objectives)
-        #print()
-        with open(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-          pickle.dump(stats, f)
-        with open(f"results/{algorithm}/{network_creator}/{task_creator}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-          pickle.dump(pop, f)
-        with open(f"results/{algorithm}/{network_creator}/{task_creator}/objectives_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-          pickle.dump(objectives, f)
-        with open(f"results/{algorithm}/{network_creator}/{task_creator}/bests_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-          pickle.dump(bests, f)
-        with open(f"results/{algorithm}/{network_creator}/{task_creator}/results_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-          pickle.dump((actual_times,actual_latencies), f)
-        j += 1
-         
-      except exceptions.NetworkDeadException:
-        #print(f"Time Elapsed for iteration {i}: {time.time() - start}")
-        import json
-        old_results = pd.read_sql("results", con=db)
-        min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
-        actual_latencies = [x for x in actual_latencies if x < 99999]
-        results = {'index' : min_index,
-                     'lifetime' : [sum([x[0] for x in objectives])],
-                     'latency' : [max([x[1] for x in objectives])],
-                     'actual_lifetime' : [sum(actual_times)],
-                     'actual_latency' : [max(actual_latencies)],
-                     'settings' : json.dumps(settings),
-                     'front' : pickle.dumps(fronts)}
-        df = pd.DataFrame(results)
-        df.set_index('index', inplace=True)
-        #print(df)
-        df.to_sql('results', db, if_exists='append')
-        #print(stats)
-        break
-#    if recursive:
-#       while True:
-#          try:
-#             print("beginning new run")
-#             runSeed = seed + i*offset
-#             settings.update({"prefix" : runSeed})
-#             pop, stats, best = main(seed = runSeed, **settings)
-#             best = best[0]
-#             #new_energy_list = best.energy
-#             #new_status_list = best.node_status
-#             #print(new_energy_list)
-#             #print(new_status_list)
-#             settings.update({'energy_list' : new_energy_list})
-#             settings.update({'network_status' : new_status_list})
-#             bests.append(list(best))
-#             front = tools.sortNondominated(pop, len(pop), True)[0]
-#             fronts.append(front)
-#             if algorithm  == 'nsga2':
-#               objectives.append(best.fitness.values)
-#             else:
-#               objectives.append((best.fitness.values[0], best.latency))
-#
-#             print(bests)
-#             print(objectives)
-#             print()
-#             with open(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-#               pickle.dump(stats, f)
-#             with open(f"results/{algorithm}/{network_creator}/{task_creator}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-#               pickle.dump(pop, f)
-#             with open(f"results/{algorithm}/{network_creator}/{task_creator}/objectives_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-#               pickle.dump(objectives, f)
-#             with open(f"results/{algorithm}/{network_creator}/{task_creator}/bests_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}_{min2digits(j)}.pck", "wb") as f:
-#               pickle.dump(bests, f)
-#             j += 1
-            
+       
+        while True:
+          try:
+            settings.update({'run_number' : j+2})
+            try:
+              new_alloc = getNewValidAssignment(best, new_node_status, archive, **settings)
+            except exceptions.NoValidNodeException:
+              raise exceptions.NetworkDeadException
 
-#          except exceptions.NetworkDeadException:
-#             print(f"Time Elapsed for iteration {i}: {time.time() - start}")
-#             old_results = pd.read_sql("results", con=db)
-#             min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
-#             results = {'index' : min_index,
-#                        'lifetime' : [sum([x[0] for x in objectives])],
-#                        'latency' : [sum([x[1] for x in objectives])],
-#                        'settings' : json.dumps(settings),
-#                        'front' : pickle.dumps(fronts)}
-#             df = pd.DataFrame(results)
-#             df.set_index('index', inplace=True)
-#             print(df)
-#             df.to_sql('results', db, if_exists='append')
-#             #print(stats)
-#             break
-#    else:
-#      runSeed = seed + i*offset
-#      pop, stats, best = main(seed = runSeed, **settings)
-#      with open(f"results/{algorithm}/{network_creator}/{task_creator}/stats_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
-#         pickle.dump(stats, f)
-#      with open(f"results/{algorithm}/{network_creator}/{task_creator}/pop_nodes{min2digits(nNodes)}_tasks{min2digits(nTasks)}_{min2digits(i)}.pck", "wb") as f:
-#         pickle.dump(pop, f)
-#      print(f"{time.ctime()}: Iteration {i} finished, time elapsed: {time.time() - start}")
-#
-#          
-#
-   #print("Convergence: ", convergence(pop, optimal_front))
-   #print("Diversity: ", diversity(pop, optimal_front[0], optimal_front[-1]))
-
-   #import matplotlib.pyplot as plt
-
-   #front = np.array([ind.fitness.values for ind in pop])
-   #optimal_front = np.array(optimal_front)
-   #plt.scatter(optimal_front[:,0], optimal_front[:,1], c="r")
-   #plt.scatter(front[:,0], front[:,1], c="b")
-   #plt.axis("tight")
-   #plt.show()
+            if len(archive) == 0:
+              new_alloc = creator.Individual(new_alloc)
+              archive.append(new_alloc)
+            #print(new_alloc)
+            runSeed = seed + i*offset
+            settings.update({"prefix" : runSeed})
+            settings.update({'enable_errors' : False})
+            settings.update({'NGEN' : NGEN})
+            #run for 10 iterations to find suitable new allocation
+            pop, stats, best, archive, archivestats = main(seed = runSeed, archive = archive, archivestats=archivestats, **settings)
+            best = best[0]
+            settings.update({'next_alloc' : best})
+            settings.update({'enable_errors' : True})
+            #run real sim to check next failure
+            new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(allocation = new_alloc, repeat = True, **settings)
+            actual_times.append(new_lifetime)
+            actual_latencies.append(new_latency)
+            settings.update({'energy_list_sim' : new_energy_list})
+            settings.update({'network_status' : new_node_status})
+            #print(f"runtimes so far: {actual_times}")
+            #print(f"latencies so far: {actual_latencies}")
+            bests.append(list(best))
+            front = tools.sortNondominated(pop, len(pop), True)[0]
+            fronts.append(front)
+            if algorithm  == 'nsga2' or algorithm == 'rmota':
+              objectives.append(best.fitness.values)
+            else:
+              objectives.append((best.fitness.values[0], best.latency))
+             
+          except exceptions.NetworkDeadException:
+            print(f"Time Elapsed for alg {algorithm}: {time.time() - start}")
+            import json
+            actual_latencies = [x for x in actual_latencies if x < 99999]
+            results = {'index' : min_index,
+                         'lifetime' : [sum([x[0] for x in objectives])],
+                         'latency' : [max([x[1] for x in objectives])],
+                         'actual_lifetime' : [sum(actual_times)],
+                         'actual_latency' : [max(actual_latencies)],
+                         'settings' : json.dumps(settings),
+                         'front' : pickle.dumps(fronts)}
+            df = pd.DataFrame(results)
+            df.set_index('index', inplace=True)
+            print(df)
+            print(stats)
+            break
