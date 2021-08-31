@@ -8,8 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 
-
-
 import ns.core
 import ns.network
 import ns.point_to_point
@@ -22,7 +20,7 @@ import ns.internet
 import ns.sixlowpan
 import ns.internet_apps
 import ns.energy
-
+import itertools
 
 
 
@@ -30,13 +28,12 @@ class Network:
     def __init__(self, networkGraph = None, positionSettings = {}, mobilitySettings = {}, appSettings= {}, initEnergyJ = 100, verbose = False, **kwargs):
         assert networkGraph is not None, "Need to specify network graph!"
         self.networkGraph = networkGraph
-        nodeCount = len(networkGraph.nodes())
+        nodeCount = kwargs['nNodes']
+        mobileNodeCount = kwargs['mobileNodeCount']
         if verbose:
             print(f"Creating network with {nodeCount} nodes")
-        self.nodeContainer = self.initNodes(nodeCount, verbose)
-        self.emptyNodeContainer = ns.network.NodeContainer()
-        #self.mobilityHelper = self.initPositionAndMobility(positionSettings, mobilitySettings)
-        self.mobilityHelper = self.buildNetworkFromGraph(networkGraph, mobilitySettings, verbose)
+        self.nodeContainer, self.staticNodesContainer, self.mobileNodesContainer, self.predictor= self.initNodes(nodeCount, mobileNodeCount, kwargs['predictor'], verbose)
+        self.mobilityHelper = self.buildNetworkFromGraph(networkGraph, mobilitySettings, verbose, kwargs['mobileNodeCount'], **kwargs)
         self.lrWpanHelper = ns.lr_wpan.LrWpanHelper()
         self.lrWpanDeviceContainer = self.initLrWpan(verbose)
         self.energyContainerList = []
@@ -48,44 +45,111 @@ class Network:
         self.ipv6Interfaces = self.initIpv6(verbose = verbose, **kwargs)
         self.taskApps = self.InstallTaskApps(verbose = verbose, **kwargs)
         #TODO: Create generic app model and install on all nodes. (Cant add apps to nodes after simstart) 
-        self.disableDAD()
+        #self.disableDAD()
         self.currentAllocation = None
         if kwargs['capture_packets']:
             self.enablePcap(kwargs['pcap_filename'])
 
 
-    def buildNetworkFromGraph(self, networkGraph, mobilitySettings, verbose):
+    def buildNetworkFromGraph(self, networkGraph, mobilitySettings, verbose, mobileNodes=0,**kwargs):
         if verbose:
             print(f"Building network with {networkGraph} as base graph")
-        mobilityHelper = ns.mobility.MobilityHelper()
+        mobilityHelperConst = ns.mobility.MobilityHelper()
+        #mobilityHelperManh = ns.mobility.MobilityHelper()
+        mobilityHelperTar = ns.mobility.MobilityHelper()
+        mobilityHelperHigh = ns.mobility.MobilityHelper()
         listPosAllocator = ns.mobility.ListPositionAllocator()
-        for node in networkGraph.nodes():
-            listPosAllocator.Add(ns.core.Vector3D(node.posx, node.posy,0))
-        mobilityHelper.SetPositionAllocator(listPosAllocator)
-        #mobilityModel = mobilitySettings['model']
-        mobilityModel = "ns3::ConstantPositionMobilityModel"
-        assert mobilityModel == "ns3::ConstantPositionMobilityModel", f"only ConstantPositionMobilityModel supported, not {mobilityModel}"
-        mobilityHelper.SetMobilityModel(mobilityModel)
-        mobilityHelper.Install(self.nodeContainer)        
-        return mobilityHelper
+        dimx = kwargs['dimx']
+        deltax = kwargs['deltax']
+        maxx = (dimx)*deltax
+        constantModel = "ns3::ConstantPositionMobilityModel"
+        manHattanmodel = "ns3::ManhattanMobilityModel"
+        targetModel = "ns3::ManhattanMobilityTargetPointModel"
+        highwayModel = "ns3::ManhattanMobilityHighwayModel"
+        bounds = "ns3::ManhattanMobilityModel::Bounds"
+        rec =ns.mobility.Rectangle(-2,maxx+2,-2,maxx+2)
+        intersect = dimx+1
+        if kwargs['static']:
+            for pos in kwargs['posList']:
+                listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
+            mobilityHelperConst.SetPositionAllocator(listPosAllocator)
+            mobilityHelperConst.SetMobilityModel(constantModel)
+            mobilityHelperConst.Install(self.staticNodesContainer)
+        else:
+            for pos in kwargs['posList'][:len(kwargs['posList'])-mobileNodes+1]:
+                listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
+            mobilityHelperConst.SetPositionAllocator(listPosAllocator)
+            mobilityHelperConst.SetMobilityModel(constantModel)
+            mobilityHelperConst.Install(self.staticNodesContainer)
+            if mobileNodes > 0:
+                mobileIndexes = list(range(mobileNodes))
+                #manHattanIndexes = mobileIndexes[::3]
+                tarIndexes = mobileIndexes[::2]
+                highwayIndexes = mobileIndexes[1::2]
+                #manhattan
+                listPosAllocator = ns.mobility.ListPositionAllocator()
+                #for pos in kwargs['posList'][len(kwargs['posList'])-mobileNodes::3]:
+                #    listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
+                #mobilityHelperManh.SetPositionAllocator(listPosAllocator)
+                #mobilityHelperManh.SetMobilityModel(manHattanmodel, "Bounds", ns.mobility.RectangleValue(rec), "HorizontalIntersections", ns.core.IntegerValue(intersect), "VerticalIntersections", ns.core.IntegerValue(intersect), "StreetDistance", ns.core.DoubleValue(100.0))           
+                #for i in manHattanIndexes:
+                #    if verbose:
+                #        print(f"Setting up manhattan nodes: {i}")
+                #    mobilityHelperManh.Install(self.mobileNodesContainer.Get(i))        
+                #    print("done")
 
-    def initNodes(self, nodeCount : int, verbose):
+                listPosAllocator = ns.mobility.ListPositionAllocator()
+                for pos in kwargs['posList'][len(kwargs['posList'])-mobileNodes::2]:
+                    listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
+                mobilityHelperTar.SetPositionAllocator(listPosAllocator)
+                mobilityHelperTar.SetMobilityModel(targetModel, "Bounds", ns.mobility.RectangleValue(rec), "HorizontalIntersections", ns.core.IntegerValue(intersect), "VerticalIntersections", ns.core.IntegerValue(intersect), "StreetDistance", ns.core.DoubleValue(100.0))           
+                for i in tarIndexes:
+                    if verbose:    
+                        print(f"Setting up target nodes: {i}")
+                    mobilityHelperTar.Install(self.mobileNodesContainer.Get(i))        
+
+                listPosAllocator = ns.mobility.ListPositionAllocator()
+                for pos in kwargs['posList'][len(kwargs['posList'])-mobileNodes+1::2]:
+                    listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
+                mobilityHelperHigh.SetPositionAllocator(listPosAllocator)
+                mobilityHelperHigh.SetMobilityModel(highwayModel, "Bounds", ns.mobility.RectangleValue(rec), "HorizontalIntersections", ns.core.IntegerValue(intersect), "VerticalIntersections", ns.core.IntegerValue(intersect), "StreetDistance", ns.core.DoubleValue(100.0))           
+                for i in highwayIndexes:
+                    if verbose:    
+                        print(f"Setting up highway nodes: {i}")
+                    mobilityHelperHigh.Install(self.mobileNodesContainer.Get(i))        
+        
+        return mobilityHelperConst
+
+    def initNodes(self, nodeCount : int, mobileNodeCount : int, pred, verbose):
         if verbose:
-            print(f"Initiating {nodeCount} nodes")
+            print(f"Initiating {nodeCount} nodes, {mobileNodeCount} of them mobile")
         nodeContainer = ns.network.NodeContainer()
         nodeContainer.Create(nodeCount)
-        return nodeContainer 
+        staticNodesCon = ns.network.NodeContainer()
+        mobileNodesCon = ns.network.NodeContainer()
+        for i in range(nodeContainer.GetN()-mobileNodeCount):
+            staticNodesCon.Add(nodeContainer.Get(i))
+        for i in range(nodeContainer.GetN()-mobileNodeCount, nodeContainer.GetN()):
+            mobileNodesCon.Add(nodeContainer.Get(i))
+        #print(staticNodesCon.GetN())
+        #print(mobileNodesCon.GetN())
+        if pred == 'target':
+            predictor = ns.mobility.TargetGridPathPredictor()
+        elif pred == 'perfect':
+            predictor = None
+        return nodeContainer, staticNodesCon, mobileNodesCon, predictor
+
 
     def initLrWpan(self, PanID = 0, verbose = False):
         lrWpanDeviceContainer = self.lrWpanHelper.Install(self.nodeContainer)
         self.lrWpanHelper.AssociateToPan(lrWpanDeviceContainer, PanID)
         if verbose:
             print(f"Creating {lrWpanDeviceContainer.GetN()} lr wpan devices")
-        for i in range(lrWpanDeviceContainer.GetN()):
-            lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnSlottedCsmaCa()
-            lrWpanDeviceContainer.Get(i).GetMac().SetMacMaxFrameRetries(0)
+        #for i in range(lrWpanDeviceContainer.GetN()):
+            #lrWpanDeviceContainer.Get(i).GetCsmaCa().SetUnSlottedCsmaCa()
+            #lrWpanDeviceContainer.Get(i).GetMac().SetMacMaxFrameRetries(0)
             #tmp = ns.core.BooleanValue(False)
-            lrWpanDeviceContainer.Get(i).SetAttribute("UseAcks", ns.core.BooleanValue(False))
+            #lrWpanDeviceContainer.Get(i).SetAttribute("UseAcks", ns.core.BooleanValue(False))
             #lrWpanDeviceContainer.Get(i).GetAttribute("UseAcks", tmp)
             #print(tmp)
             #lrWpanDeviceContainer.Get(i).GetCsmaCa().SetMacMaxBE(5)
@@ -94,8 +158,8 @@ class Network:
         return lrWpanDeviceContainer 
 
     def initEnergy(self, node, nodeIndex, verbose):
-        if verbose:
-            print(f"Initiating energy for {node}: {node.energy}")
+        #if verbose:
+            #print(f"Initiating energy for {node}: {node.energy}")
         #networkGraphWithIntLabels = nx.convert_node_labels_to_integers(self.networkGraph)
         liIonEnergySourceHelper = ns.energy.LiIonEnergySourceHelper()
         liIonEnergySourceHelper.Set("LiIonEnergySourceInitialEnergyJ", ns.core.DoubleValue(node.energy))
@@ -125,37 +189,37 @@ class Network:
         ipv6StackHelper.Install(self.nodeContainer)
         ipv6address = ns.internet.Ipv6AddressHelper()
         ipv6Interfaces = ns.internet.Ipv6InterfaceContainer()
-        #for i in range (self.sixLowPanContainer.GetN()):
-        #    netdevicecontainer = ns.network.NetDeviceContainer()
-        #    netdevicecontainer.Add(self.sixLowPanContainer.Get(i))
+        ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:1::"), ns.network.Ipv6Prefix(64))
+        #for i in range(self.sixLowPanContainer.GetN()):   
         #    ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:{i+1}::"), ns.network.Ipv6Prefix(64))
-        #    if verbose:
-        #        print(f"Set Base to {ns.network.Ipv6Address(f'{prefix}:{i}::')}")
-        #    ipv6address.NewNetwork()
-        #    #ipv6interfaces = ipv6address.Assign(self.sixLowPanContainer)
-        #    ipv6Interfaces.Add(ipv6address.Assign(netdevicecontainer))
-        #ipv6interfaces.SetDefaultRouteInAllNodes(0)
+        #    #ipv6address.NewNetwork()
+        #    cont = ns.network.NetDeviceContainer()
+        #    cont.Add(self.sixLowPanContainer.Get(i))
+        #    ipv6Interfaces.Add(ipv6address.Assign(cont))
+        ipv6Interfaces = ipv6address.Assign(self.sixLowPanContainer)
         for i in range(ipv6Interfaces.GetN()):
-            ipv6Interfaces.SetForwarding(i, False)
-        ipv6address.SetBase(ns.network.Ipv6Address(f"{prefix}:{1}::"), ns.network.Ipv6Prefix(64))
-        ipv6interfaces = ipv6address.Assign(self.sixLowPanContainer)
-        return ipv6interfaces
+            ipv6Interfaces.SetForwarding(i, True)
+        #ipv6Interfaces.SetDefaultRouteInAllNodes(1)
+        return ipv6Interfaces
+
+
+    
 
     def disableDAD(self):
         for i in range(self.nodeContainer.GetN()):
             icmpv6 = self.nodeContainer.Get(i).GetObject(ns.internet.Icmpv6L4Protocol.GetTypeId())
-            icmpv6.SetAttribute("RetransmissionTime", ns.core.TimeValue(ns.core.Seconds(1000)))
-            icmpv6.SetAttribute("DelayFirstProbe", ns.core.TimeValue(ns.core.Seconds(15)))
-            icmpv6.SetAttribute("MaxMulticastSolicit", ns.core.IntegerValue(0))
-            icmpv6.SetAttribute("MaxUnicastSolicit", ns.core.IntegerValue(0))
-            icmpv6.SetAttribute("DAD", ns.core.BooleanValue(False))
-            icmpv6.SetAttribute("ReachableTime", ns.core.TimeValue(ns.core.Seconds(1000)))
-            
+            #icmpv6.SetAttribute("RetransmissionTime", ns.core.TimeValue(ns.core.Seconds(1000)))
+            #icmpv6.SetAttribute("DelayFirstProbe", ns.core.TimeValue(ns.core.Seconds(15)))
+            #icmpv6.SetAttribute("MaxMulticastSolicit", ns.core.IntegerValue(0))
+            #icmpv6.SetAttribute("MaxUnicastSolicit", ns.core.IntegerValue(0))
+            #icmpv6.SetAttribute("DAD", ns.core.BooleanValue(False))
+            #icmpv6.SetAttribute("ReachableTime", ns.core.TimeValue(ns.core.Seconds(1000)))
             icmpv6L3 = self.nodeContainer.Get(i).GetObject(ns.internet.Ipv6L3Protocol.GetTypeId())
+            icmpv6L3.SetSendIcmpv6Redirect(False)
             #a = ns.core.BooleanValue(True)
             #icmpv6L3.GetAttribute("SendIcmpv6Redirect", a)
             #print(a)
-            icmpv6L3.SetAttribute("SendIcmpv6Redirect", ns.core.BooleanValue(0))
+            #icmpv6L3.SetAttribute("SendIcmpv6Redirect", ns.core.BooleanValue(0))
             
     
     def InstallTaskApps(self, verbose = False, enable_errors = True, error_scale = 1.0, error_shape=1.0, network_status=[], **unused_settings):
@@ -164,15 +228,12 @@ class Network:
         taskHelper = ns.applications.TaskHelper(enable_errors,error_scale,error_shape)
         taskApps = taskHelper.Install(self.nodeContainer)
         #print(f"setting network status: {network_status}")
-        for i in range(taskApps.GetN()):
-            taskApps.Get(i).SetNetworkStatus(network_status)
 
-        ngraph = nx.convert_node_labels_to_integers(self.networkGraph)
-        for node in ngraph:
-            nbrs = ngraph.neighbors(node)
-            for n in nbrs:
-                taskApps.Get(node).AddNeighbour(taskApps.Get(n))
-
+        #ngraph = nx.convert_node_labels_to_integers(self.networkGraph)
+        #for node in ngraph:
+        #    nbrs = ngraph.neighbors(node)
+        #    for n in nbrs:
+        #        taskApps.Get(node).AddNeighbour(taskApps.Get(n))
         return taskApps
     
     def InstallTasks(self, taskGraph, allocation):
@@ -184,40 +245,11 @@ class Network:
         self.lrWpanHelper.EnablePcapAll(logname, True)
         
 
-    def deactivateNode(self, nodeId = 0):
-        #l = ns.core.ObjectPtrContainerValue()
-        #self.nodeContainer.Get(0).GetAttribute("DeviceList", l)
-        #for i in range(l.GetN()):
-        #    print(l.Get(i))
-        #    print(dir(l.Get(i)))
-        
-        typeID = ns.core.TypeId.LookupByName('ns3::Ipv6')
-        
-        self.emptyNodeContainer.Add(self.nodeContainer.Get(nodeId))
-       # print(f"Added node with index {node} to empty nodes, nodeID: {self.emptyNodeContainer.Get(0).GetId()}")
-        
-
-        for i in range(self.nodeContainer.Get(nodeId).GetObject(typeID).GetNInterfaces()):
-            #print(f"NetDevice: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice()}")
-            
-            if i ==1:
-                #print(f"Underlying net Device: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().GetNetDevice()}")
-                self.nodeContainer.Get(nodeId).GetObject(typeID).GetInterface(i).SetDown()
-                #self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().GetNetDevice().LinkDown()
-            #print(f"Interface IsUp: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).IsUp()}")
-            #print(f"Device IsLinkUp: {self.nodeContainer.Get(node).GetObject(typeID).GetInterface(i).GetDevice().IsLinkUp()}")
-
-
-        
-
-        #typeID0 = ns.core.TypeId.LookupByName('ns3::SixLowPanNetDevice')
-        #print(f"sixlowpandevices: {self.nodeContainer.Get(0).GetObject(typeID1)}")
-        #typeID2 = ns.core.TypeId.LookupByName('ns3::Ipv6Interface')
-        #print(f"sixlowpandevices: {self.nodeContainer.Get(-1).GetObject(typeID1).GetObject(typeID2)}")
     def getEnergy(self, result_list = []):
+        #energy = []
         for energySourceContainer in self.energyContainerList:
             result_list.append(energySourceContainer.Get(0).GetRemainingEnergy())
-        
+        #result_list.append([energy])
     
     def getLatency(self, latency_list = []):
         actTaskId = ns.core.TypeId.LookupByName("ns3::ActuatingTask")
@@ -231,6 +263,8 @@ class Network:
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == ctrlTaskId:
+                    node_status.append([list(x) for x in list(task.getCurrentPositions())])
+                    return
                     taskApp = self.taskApps.Get(i)
                     for j in range(self.taskApps.GetN()):
                         status = taskApp.GetNodeState(j)
@@ -241,23 +275,32 @@ class Network:
                             node_status.append(1)
                     return
 
-    def getPackagesSent(self, packages_sent = [], send_sent = []):
+    def getPackagesSent(self, packages_sent = [], send_sent = [], seqNums=[]):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == sendTaskId:
                     packages_sent.append(task.GetPackagesSent())
                     send_sent.append(task.GetNSent())
-                    return
-
-    def getPackagesReceived(self, packages_received = [], act_received = []):
+                    seqNums.append(list(task.GetSequenceNumbers()))                
+    
+    def getPackagesReceived(self, packages_received = [], act_received = [], seqNums = []):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::ActuatingTask")
         for i in range(self.taskApps.GetN()):
             for task in self.taskApps.Get(i).GetTasks():
                 if task.GetTypeId() == sendTaskId:
                     packages_received.append(task.GetPackagesReceived())
                     act_received.append(task.GetNReceived())
-                    return
+                    seqNums.append(list(task.GetSequenceNumbers()))
+
+    
+    def getPredictions(self, predictions = [], time= 30):
+        predtemp = []
+        predtemp.append(list(self.predictor.PredictAll(self.mobileNodesContainer, time)))
+        for x in predtemp:
+            for y in x:
+                z = [y.x,y.y,y.z]
+                predictions.append(z)
     def sendAllocationMessages(self):
         sendTaskId = ns.core.TypeId.LookupByName("ns3::SendTask")
         for i in range(self.taskApps.GetN()):
@@ -295,13 +338,35 @@ class Network:
         self.taskApps = 0
 
 
-def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unused_settings):
+def createTasksFromGraph(network, taskGraph = None, allocation = None, verbose = False, routing = False, **unused_settings):
+    if taskGraph == None:
+        #were just collecting data
+        controlTaskFactory = ns.core.ObjectFactory()
+        controlTaskFactory.SetTypeId("ns3::ControlTask")
+        
+        controlTask = controlTaskFactory.Create()
+        controlTask.SetTaskApplications(network.taskApps)
+        
+        network.controlTask = controlTask
+        real_allocation = [(0,[0])]
+        posV = []
+        timeV = []
+        
+        for node in network.networkGraph.nodes():
+            posV.append([node.posx,node.posy])
+            timeV.append(ns.core.Time())
+        controlTask.SetInitialAllocation(real_allocation)
+        controlTask.SetInitialStatus(posV, timeV)
+        for i in range(network.taskApps.GetN()):
+            network.taskApps.Get(i).SetNetworkStatus(posV)
+        network.taskApps.Get(0).AddTask(controlTask)
+        return
     procTaskFactory = ns.core.ObjectFactory()
     procTaskFactory.SetTypeId("ns3::ProcessingTask")
 
     sendTaskFactory = ns.core.ObjectFactory()
     sendTaskFactory.SetTypeId("ns3::SendTask")
-    sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(10.0)))
+    #sendTaskFactory.Set ("Interval", ns.core.TimeValue(ns.core.Seconds(10.0)))
 
     actTaskFactory = ns.core.ObjectFactory()
     actTaskFactory.SetTypeId("ns3::ActuatingTask")
@@ -313,21 +378,30 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
     controlTaskFactory.SetTypeId("ns3::ControlTask")
     
     controlTask = controlTaskFactory.Create()
+    controlTask.SetTaskApplications(network.taskApps)
     network.controlTask = controlTask
     real_allocation = [(0,[0])]
     for i, alloc in enumerate(allocation):
         real_allocation.append((i+1,[alloc]))
+    posV = []
+    timeV = []
     
+    for node in network.networkGraph.nodes():
+        posV.append([node.posx,node.posy])
+        timeV.append(ns.core.Time())
     controlTask.SetInitialAllocation(real_allocation)
-    #print(real_allocation)
+    controlTask.SetInitialStatus(posV, timeV)
+    for i in range(network.taskApps.GetN()):
+        network.taskApps.Get(i).SetNetworkStatus(posV)
     network.taskApps.Get(0).AddTask(controlTask)
-    #print(real_allocation)
     networkGraph = nx.convert_node_labels_to_integers(network.networkGraph)
-    #TODO: include control task in allocation
     taskList=[]
     if verbose:
         print(f"creating {len(taskGraph.nodes())} tasks")
     assert ((len(taskGraph.nodes()))==len(allocation)), f"Task and allocation list length mismatch: {len(taskGraph.nodes())} vs {len(allocation)}"
+    taskIds = []
+    hasSuccessor = []
+    successorIds = []
     try:
         for task, alloc in zip(taskGraph.nodes(), allocation):
             if verbose:
@@ -338,8 +412,12 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                 sendTask = sendTaskFactory.Create()
                 sendTask.DoInitialize()
                 network.taskApps.Get(alloc).AddTask(sendTask)
+                if task.constraints['location'] is not None:
+                    sendTask.SetPosConstraint(task.bound_x[0],task.bound_x[1],task.bound_y[0], task.bound_y[1])
                 task.node = list(networkGraph.nodes())[alloc]
                 taskList.append(sendTask)
+                taskIds.append(sendTask.GetTaskId())
+                hasSuccessor.append(True)
             elif task.task_type == "Processing":
                 if verbose:
                     print(f"creating proctask")
@@ -348,14 +426,20 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
                 network.taskApps.Get(alloc).AddTask(procTask)
                 task.node = list(networkGraph.nodes())[alloc]
                 taskList.append(procTask)
+                taskIds.append(procTask.GetTaskId())
+                hasSuccessor.append(True)
             elif task.task_type == "Actuating":
                 if verbose:
                     print(f"creating acttask")
                 actTask = actTaskFactory.Create()
                 actTask.DoInitialize()
+                if task.constraints['location'] is not None:
+                    actTask.SetPosConstraint(task.bound_x[0],task.bound_x[1],task.bound_y[0], task.bound_y[1])
                 network.taskApps.Get(alloc).AddTask(actTask)
                 task.node = list(networkGraph.nodes())[alloc]
                 taskList.append(actTask)
+                taskIds.append(actTask.GetTaskId())
+                hasSuccessor.append(False)
                 if verbose:
                     print(f"created acttask")
             else:
@@ -366,72 +450,29 @@ def createTasksFromGraph(network, taskGraph, allocation, verbose = False, **unus
         raise e
     if verbose:
         print("Creating task dependencies")
-    #routeHelper = ns.internet.Ipv6StaticRoutingHelper
     assert len(taskGraph.nodes) == len(taskList), "taskgraph and task list length mismatch"
     for nxTask, nsTask in zip (taskGraph.nodes(), taskList):
+        taskSuccessors = []
         assert nxTask.node is not None, "Nx task has no node"
         for outTask in nxTask.outputs:
             assert outTask.node is not None, "node is none in pathfinding"
             try:
-                if verbose:
-                    print(f"calculating dijkstra from {nxTask.node} to {outTask.node}")
-                path = nx.shortest_path(networkGraph, source = nxTask.node, target = outTask.node)
-                if verbose: 
-                    print(f"Path : {path}")
-                    print(f"Assigned paired task to id {outTask.taskId-1}, task list length : {len(taskList)}")
                 paired_task = taskList[outTask.taskId-1]
-                if len(path) <= 2:
-                    if verbose:
-                        print("tasks assigned direct neighbors or same node")
-                    nsTask.AddSuccessor(paired_task)
-                    paired_task.AddPredecessor(nsTask)
-                   # ipv6TypeID = ns.core.TypeId.LookupByName('ns3::Ipv6Interface')
-                   # print(ipv6TypeID)
-                   # print(network.taskApps.Get(path[0]).GetNode().GetObject(ipv6TypeID))
-                   # ipv6 = network.taskApps.Get(path[0]).GetNode().GetObject(ipv6TypeID)
-                   # routing = routeHelper.GetStaticRouting(network.ipv6Interfaces.Get(path[0]))
-                   # routing.AddHostRouteTo(GetSocketAdressFromTask(paired_task,0))
-                else:
-                    if verbose:
-                        print("Tasks need relay task bridge")
-                    relayList = []
-                    for pathNode in path[1:-1]:
-                        relayTask = relayTaskFactory.Create()
-                        relayTask.DoInitialize()
-                        if verbose:
-                            print(f"Adding relayTask to {pathNode}")
-                        network.taskApps.Get(pathNode).AddTask(relayTask)
-                        relayList.append(relayTask)
-                    for i, relayTask in enumerate(relayList):
-                        if i == 0:
-                            nsTask.AddSuccessor(relayList[i])
-                            relayTask.AddPredecessor(nsTask)
-                            if len(relayList) > 1:
-                                # more than 1 relay task, successor is next
-                                relayTask.AddSuccessor(relayList[i+1])
-                            else:
-                                # only 1 relay task, successor is the actual receiving task
-                                relayTask.AddSuccessor(paired_task)
-                                paired_task.AddPredecessor(relayTask)
-                        elif (i < len(relayList)-1):
-                            #relay task chaining
-                            relayTask.AddSuccessor(relayList[i+1])
-                            relayTask.AddPredecessor(relayList[i-1])
-                        else:
-                            #final relay to receiving task
-                            relayTask.AddSuccessor(paired_task)
-                            relayTask.AddPredecessor(relayList[i-1])
-                            paired_task.AddPredecessor(relayTask)
-                    for task in relayList:
-                        task = 0
-                    relayList = 0
+                nsTask.AddSuccessor(paired_task)
+                taskSuccessors.append(paired_task.GetTaskId())
+                paired_task.AddPredecessor(nsTask)
             except Exception as e:
                 print(f"Error during task dependency creation: {e} ")
                 raise e
-    for task in taskList:
-        task = 0
-    taskList = []
-    controlTask = 0                
+        successorIds.append(taskSuccessors)
+    #print(taskIds)
+    #print(hasSuccessor)
+    #print(successorIds)
+    controlTask.SetSuccessors(taskIds, hasSuccessor, successorIds)
+    #for task in taskList:
+    #    task = 0
+    #taskList = []
+    #controlTask = 0                
     if verbose:
         print("Finished task creation")
 
@@ -458,7 +499,7 @@ def checkIfAlive(allocation = [], verbose = False, **kwargs):
     energy_list = kwargs['energy_list_sim']
     node_status = kwargs['network_status']
     init_energy = kwargs['init_energy']
-    networkGraph = network_creator(energy_list = energy_list, **kwargs)
+    networkGraph = network_creator(**kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   
     to_remove = []
     for i,node in enumerate(list(networkGraph.nodes())):
@@ -609,7 +650,7 @@ def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     return -lifetime, latency, received, energy_list, node_status, percentage
     
 
-def evaluate(allocation = [], repeat = False, **kwargs):
+def evaluate(allocation = [], stopTime = 70, **kwargs):
     #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
     verbose = kwargs['verbose']
     if not (checkIfAlive(**kwargs)):
@@ -625,7 +666,7 @@ def evaluate(allocation = [], repeat = False, **kwargs):
     nTasks = kwargs['nTasks']
     task_creator = topologies.task_topologies[kwargs['task_creator']]
     energy_list = kwargs['energy_list_sim']
-    networkGraph = network_creator(energy_list = energy_list, **kwargs)
+    networkGraph = network_creator(**kwargs)
     taskGraph = task_creator(networkGraph, **kwargs)   
     #print(f"enlist before eval: {energy_list}")
     to_remove = []
@@ -643,94 +684,94 @@ def evaluate(allocation = [], repeat = False, **kwargs):
     if verbose:
         print(f"nodes left: {len(networkGraph.nodes())}")
     try:
-        network = Network(networkGraph, **kwargs)
+        net = Network(networkGraph, **kwargs)
     except Exception as e:
         print(f"Error during network creation: {e}")
         raise e
     if verbose:
         print(f"Creating tasks ")
-    createTasksFromGraph(network, taskGraph, allocation, **kwargs)
+    createTasksFromGraph(net, taskGraph, allocation, **kwargs)
     #print("Starting Simulation")
+    node_status = []
     latency_list = []
     received_list = []
     actrcvd = []
     sendsent = []
     sent_list = []
+    send_list = []
     energy_list = []
     node_status = []
+    act_list = []
+    seqNumTx=[]
+    seqNumRx=[]
     time = []
     if verbose:
         print("Running sim")
     def getTime(time = []):
         time.append(ns.core.Simulator.Now().GetSeconds())    
     ns.core.RngSeedManager.SetRun(kwargs['run_number'])
-    ns.core.Simulator.ScheduleDestroy(network.getLatency, latency_list)
-    ns.core.Simulator.ScheduleDestroy(network.getPackagesSent, sent_list, sendsent)
-    ns.core.Simulator.ScheduleDestroy(network.getPackagesReceived, received_list, actrcvd)
-    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
-    ns.core.Simulator.ScheduleDestroy(network.getEnergy, energy_list)
-    ns.core.Simulator.ScheduleDestroy(network.getNodeStatus, node_status)
-    ns.core.Simulator.Schedule(ns.core.Time(0.5), network.sendAllocationMessages)    
-    ns.core.Simulator.Schedule(ns.core.Time(2.5), network.sendAllocationMessages)    
-    if len(kwargs['next_alloc']) > 0 and repeat:
-        ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(30)))    
+    ns.core.Simulator.ScheduleDestroy(net.getPackagesSent, sent_list, send_list, seqNumTx)
+    ns.core.Simulator.ScheduleDestroy(net.getPackagesReceived, received_list, act_list, seqNumRx)
+    ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
     ns.core.Simulator.ScheduleDestroy(getTime, time)
+    ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
+    ns.core.Simulator.ScheduleDestroy(net.getLatency, latency_list)
+    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(stopTime)))
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
     #print(latency_list)
-    time1 = []
-    latency1 = []
-    received1 = []
-    energy_list1 = []
-    node_status1 = []
+    #the energy this exp started with
+    start_energy = kwargs['energy_list']
+    #the energy actually left on the nodes
+    energy_sim = energy_list
+    delta_energy = []
+    lifetimes = []
+    #print(energy_sim)
+    for old_en, new_en, in zip(start_energy, energy_sim):
+        #how much energy was spent?
+        deltaE = (old_en-new_en)/time[0]
+        delta_energy.append(deltaE)
+        if deltaE > 0:
+            # how long will the energy last on the actual network?
+            lifetimes.append(old_en/deltaE)
+    lifetime = min(lifetimes)
     for index, energy in depleted_indexes:
         energy_list.insert(index, energy)
         node_status.insert(index, False)
-    #print(f" time bef: {time}")
-    network.cleanUp()
-    del network
+    net.cleanUp()
+    del net
     network = 0
-    if repeat:
-        if np.mean(time) >= 20 and len(kwargs['next_alloc']) >0 :
-            kwargs.update({'energy_list_sim' : energy_list})
-            kwargs.update({'network_status' : node_status})
-            if verbose:
-                print("starting repeat run")
-            if not (checkIfAlive(**kwargs)):
-                raise exceptions.NetworkDeadException
-            try:
-                time1, latency1, received1, energy_list1, node_status1, missed1 = evaluate(kwargs['next_alloc'], repeat=False, **kwargs)
-            except Exception as e:
-                print(f"Error during repeat run: {e}")
-                raise e
         
 
-    
     latency = max(latency_list)
-    missed_packages = sent_list[0] - received_list[0]
-    if sent_list[0] > 0:
-        percentage = missed_packages/sent_list[0]
-    else:
-        percentage = 0
-    latency += latency*percentage
-    #print(f"sent: {sent_list[0]}")
-    #print(f"% missed: {percentage}")
-    #print(f"missed packages:{missed_packages}") 
-    #if max(actrcvd) == 0:
-    #    latency = 99999
-    received = received_list[0]
-    time = time[0]
-    time -= time*percentage
-    if repeat:
-        latency =max(latency,latency1) 
-        time = time + abs(time1)
-        received += received1
-        energy_list = energy_list1
-        node_status = node_status1
-        missed_packages += missed1
+    nMissed = 0
+    for tx in itertools.zip_longest(*seqNumTx,fillvalue=-1):
+        found = [False for x in tx]
+        for i,a in enumerate(tx):
+            for r in seqNumRx:
+                if a in r or a == -1:
+                    found[i] = True
+                    continue
+        if not all(found):
+            nMissed +=1
+    
+    nSent = max([len(list(x)) for x in seqNumTx])
+    #print(seqNumRx)
+    #print(sent_list)
+    #print(send_list)
+    #print(received_list)
+    #print(act_list)
+    #print(nMissed)
+    #print(latency_list)
+    #print()
+    #print()
+    #if nSent != 0:
+    #    availability = 1.0 - (nMissed/nSent)
+    #else:
+    #    availability = 0
     
     if latency == 0:
-        latency = 98765
+        latency = 9999
     network = 0
     if verbose:
         print(f"Eval finished - repeat? {repeat}")
@@ -739,13 +780,8 @@ def evaluate(allocation = [], repeat = False, **kwargs):
         print(f"Latency: {latency}")
         print(f"Energy list: {energy_list}, len: {len(energy_list)}")
         print(f"Node status list: {node_status}, len: {len(energy_list)}")
-    #print(f"latency: {latency}")
-    #print(energy_list)
-    #energy = np.mean(energy_list)
-    #print(f"lifetime: {time}")
-    #for some reason the network doesnt get deleted corretyl if this isnt done TODO
 
-    return -time, latency, received, energy_list, node_status, percentage
+    return -lifetime, latency, nMissed, energy_list
 
 if __name__ == '__main__':
 

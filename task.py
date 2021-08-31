@@ -21,6 +21,7 @@ class Task():
         for constraint, value in self.constraints.items():
             if constraint =='location':
                 if self.constraints['location'] is not None:
+                    #print(f"found loc constraint: {self.constraints['location']}")
                     #boundary is not the global search space, check for fitting nodes
                     constrained_nodes = [node for node in constrained_nodes if self.check_location_constraint(node.pos)]
                     if len(constrained_nodes) == 0:

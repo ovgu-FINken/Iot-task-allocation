@@ -12,3 +12,4 @@ results/
 *.png
 *.sh
 .vscode/
+cred.py
