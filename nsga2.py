@@ -404,6 +404,7 @@ def selArchive(pop, archive, archivestats, max_size = 100):
          else:
             archivestats.update({alloc : 1})
       ind.similarity = similarity
+      archive.append(ind)
    for ind in archive:
       similarity = 0
       for alloc in set(ind):
@@ -414,7 +415,7 @@ def selArchive(pop, archive, archivestats, max_size = 100):
             #okay this should never happen..but just to be sure
             archivestats.update({alloc : 1})
       ind.similarity = similarity
-   new_archive = sorted(pop+archive, key = lambda x : x.similarity)
+   new_archive = sorted(archive, key = lambda x : x.similarity)
    #update the stats
    for ind in new_archive[max_size:]:
       for alloc in set(ind):
