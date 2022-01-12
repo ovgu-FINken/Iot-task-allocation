@@ -18,7 +18,6 @@ import ns.internet_apps
 import ns.energy
 import itertools
 import time as timer
-import tools
 
 start = timer.time()
 nNodes = 81
