@@ -10,15 +10,11 @@ import networkx as nx
 
 import ns.core
 import ns.network
-import ns.point_to_point
 import ns.applications
-import ns.wifi
 import ns.lr_wpan
 import ns.mobility
-import ns.csma
 import ns.internet 
 import ns.sixlowpan
-import ns.internet_apps
 import ns.energy
 import itertools
 
