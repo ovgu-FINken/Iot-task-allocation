@@ -36,6 +36,48 @@ def Grid(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], **kwargs):
             G.add_edge(node1,node2)
     return G
 
+
+def ManHattan(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], posList = [], mobileNodeCount = 0, **kwargs):
+    G= nx.OrderedGraph()
+    if len(posList) == 0:
+        #print("no pos list supplied for grid creation, aborting")
+        #return None
+        if len(energy_list) == 0:
+            print("no energy list supplied for grid creation, aborting")
+            return None
+        x=50
+        y=50
+        
+        #create fixed nodes:
+        for i in range(dimx):
+            for j in range(dimy):
+              #we want to increase x with j and i with j (fill rows first)
+              node = GraphNode(x+j*deltax,y+i*deltay, energy_list[j+i*dimx])
+              G.add_node(GraphNode(x+j*deltax,y+i*deltay, energy_list[j+i*dimx]), pos=node.pos, energy=node.energy)
+        x= 0
+        y = 0
+        intersections_x = []
+        intersections_y = []
+        for i in range(dimx):
+            intersections_x.append(x+i*deltax) 
+            intersections_y.append(y+i*deltax)
+        np.random.seed(kwargs['seed'])
+        static_nodes = dimx*dimy
+        for i in range(mobileNodeCount):
+            node = GraphNode(np.random.choice(intersections_x), np.random.choice(intersections_y), energy_list[static_nodes+i])
+            G.add_node(GraphNode(np.random.choice(intersections_x), np.random.choice(intersections_y), energy_list[static_nodes+i]), pos=node.pos, energy = node.energy)
+    else:
+        for pos, energy in zip(posList,energy_list):
+            node = GraphNode(pos[0],pos[1],energy)
+            G.add_node(GraphNode(pos[0],pos[1],energy), pos =node.pos, energy = node.energy)
+    for node1,node2 in combinations(G.nodes(),2):
+        dist = la.norm(node1.pos - node2.pos)
+        if dist <= 100:
+            G.add_edge(node1,node2)
+    return G
+
+
+
 def Line(nNodes = 25, deltax = 100, energy_list = [1000]*25, **kwargs):
     G= nx.OrderedGraph()
     for i in range(nNodes):
@@ -47,20 +89,31 @@ def Line(nNodes = 25, deltax = 100, energy_list = [1000]*25, **kwargs):
             G.add_edge(node1,node2)
     return G
 
-def TwoTask(networkGraph, deltax = 100):
+def TwoTask(networkGraph = None, nTasks=0, deltax = 100, mobileNodeCount = 0,**kwargs):
     #reset global taskId counter
+    assert networkGraph is not None, "Network Graph for Task Gen is None"
+    #assert nTasks > 1, "Cant create TwoTaskWithProcessing with less than 2 tasks"
     Task.taskId = 1
-    n = len(networkGraph.nodes())
     G = nx.OrderedDiGraph()
-    first_constraint = {'location' : np.array([np.array([-1,1]),np.array([-1,1])])}
+    pos1 = list(networkGraph.nodes())[0].pos
+    bound1 = np.array([np.array([pos1[0]-deltax+1,pos1[0]+deltax-1]), np.array([pos1[1]-deltax+1,pos1[1]+deltax-1])])
+    pos2 = list(networkGraph.nodes())[-(mobileNodeCount+1)].pos
+    bound2 = np.array([np.array([pos2[0]-deltax+1,pos2[0]+deltax-1]), np.array([pos2[1]-deltax+1,pos2[1]+deltax-1])])
+    first_constraint = {'location' : bound1}
     task1 = Task(first_constraint)
     G.add_node(task1)
-    second_constraint = {'location' : np.array([np.array([(n-1)*deltax-1,(n-1)*deltax+1]),np.array([-1,1])])}
+    second_constraint = {'location' : bound2}
     task2 = Task(second_constraint)
     G.add_node(task2)
-    G.add_edge(task1,task2)
+    
+    for i, node in enumerate(list(G.nodes())):
+        if i == 0:
+            continue
+        G.add_edge(list(G.nodes())[i-1], node)
     for task in G.nodes():
         task.set_topology(G)
+    #for x in list(G.nodes()):
+    #    print(x.taskId)
     return G
     
 def TwoTaskWithProcessing(networkGraph = None, nTasks=0, deltax = 100, **kwargs):
@@ -94,7 +147,7 @@ def TwoTaskWithProcessing(networkGraph = None, nTasks=0, deltax = 100, **kwargs)
     return G
 
 
-def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, verbose = False, **kwargs):
+def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, mobileNodeCount = 0, verbose = False, **kwargs):
     assert networkGraph is not None, "Network Graph for Task Gen is None"
     Task.taskId = 1
     G = nx.OrderedDiGraph()
@@ -108,15 +161,16 @@ def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, v
         n_outer = int((nTasks-1)/3)
         n_inner = int((n_outer)/2)
     assert nTasks in validTaskCounts, f"{nTasks} is not a valid task count for the EncodeDecode Setup! \n Valid Setups: {validTaskCounts}"
-    posEncode = np.array([list(networkGraph.nodes())[0].pos[0]-1, list(networkGraph.nodes())[int(ndim/2)].pos[0]+1])
+    staticNodes = list(networkGraph.nodes)[:ndim**2]
+    posEncode = np.array([list(staticNodes)[0].pos[0]-deltax+1, list(staticNodes)[int(ndim/2)].pos[0]+deltax-1])
     boundEncode = np.array([posEncode, np.array([-np.inf, np.inf])])
     if verbose:
         print(f"Boundary for encode: {boundEncode}")
-    posDecode = np.array([list(networkGraph.nodes())[int(ndim/2)].pos[0]-1, list(networkGraph.nodes())[-1].pos[0]+1])
+    posDecode = np.array([list(staticNodes)[int(ndim/2)].pos[0]-deltax+1, list(staticNodes)[-1].pos[0]+deltax-1])
     boundDecode = np.array([posDecode, np.array([-np.inf, np.inf])])
     if verbose:
         print(f"Boundary for Decode: {boundDecode}")
-    posCenter = np.array([list(networkGraph.nodes())[int(ndim/2)].pos[0]-1, list(networkGraph.nodes())[int(ndim/2)].pos[0]+1])
+    posCenter = np.array([list(staticNodes)[int(ndim/2)].pos[0]-deltax+1, list(staticNodes)[int(ndim/2)].pos[0]+deltax-1])
     boundCenter = np.array([posCenter, np.array([-np.inf, np.inf])])
     if verbose:
         print(f"Boundary for center: {boundCenter}")
@@ -191,8 +245,8 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
     return G
 
 network_topologies = { 'Grid' : Grid,
-                       'Line' : Line
-                       }
+                       'Line' : Line,
+                       'Manhattan' : ManHattan}
 
 task_topologies = { 'TwoTask' : TwoTask,
                     'TwoTaskWithProcessing' : TwoTaskWithProcessing,

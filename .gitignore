@@ -12,3 +12,7 @@ results/
 *.png
 *.sh
 .vscode/
+cred.py
+
+datasets/*
+datasets_amota/*

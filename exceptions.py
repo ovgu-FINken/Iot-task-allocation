@@ -30,3 +30,8 @@ class InvalidNetworkException(Exception):
 
 class NetworkDeadException(Exception):
     pass
+
+
+
+class UnrecognizedAlgorithmException(Exception):
+    pass

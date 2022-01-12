@@ -16,66 +16,62 @@ class JobStatus(IntEnum):
 
 
 def create_experiments():
-    #task_numbers = [19,43,79]
-    task_numbers =[20,40,80]
-    algorithms = ['rmota','nsga2','dtas']
+    task_numbers = [19,55]
+    algorithms = ['rmota','mmota']
     
-    network_creator = 'Grid'
-    #task_creator = 'EncodeDecode'
-    task_creator = 'OneSink'
-    nNodes = 81
-    dims = 9
-    energy = 100
-    energy_list = [energy]*nNodes
-    network_status = [1]*nNodes
-    crossover = 'nsga2'
-    NGEN = 100
-    for algorithm in algorithms:
-        for nTasks in task_numbers:
-            for i in range(11):
-                settings = {
-                         'experiment' : 'rmota',
-                         'nNodes' : nNodes,
-                         'network_creator' : network_creator,
-                         'dimx' : dims,
-                         'dimy' : dims,
-                         'nTasks' : nTasks,
-                         'task_creator' : task_creator,
-                         'energy_list_sim' : energy_list,
-                         'energy_list_eval': energy_list,
-                         'init_energy' : energy,
-                         'algorithm' : algorithm,
-                         'crossover' : crossover,
-                         'verbose' : False,
-                         'capture_packets' : False,
-                         'enable_errors' : False,
-                         'error_shape' : 1.0,
-                         'error_scale' : 1.0,
-                         'network_status' : network_status,
-                         'NGEN' : NGEN,
-                         'NGEN_realloc': 20,
-                         'run_number' : 1,
-                         'experiment_number' : i,
-                         'seed' : 2002+i*42,
-                         'next_alloc' : [],
-                         }
-                old_results = pd.read_sql("experiments", con=db)
-                min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
-                run = {'index' : min_index,
-                   'experiment' : 'rmota',
-                   'algorithm' : algorithm,
-                   'status' : JobStatus.TODO,
-                   'settings' : json.dumps(settings)
-                    }
-                df = pd.DataFrame(run, index=[0])
-                df.set_index('index', inplace=True)
-                df.to_sql('experiments', db, if_exists='append')
+    network_creator = 'Manhattan'
+    task_creator = 'EncodeDecode'
+    #task_creator = 'OneSink'
+    mobl = [0,30,40]
+    for static in [False, True]:
+        predl = ['perfect', 'target'] if not static else ['perfect']
+        for predictor in predl:
+            print(f"creating {predictor} predictor data")
+            mobl = [0,30,40]
+            mobl = mobl if not static else [0]
+            for nMob in mobl:
+                mobileNodes = nMob
+                nNodes = 81 + mobileNodes
+                for i in range(11):
+                    with open(f"datasets/{'static' if static else 'mobile'}/{nNodes}/{predictor if not static else ''}/settings_{i}.json") as f:
+                        settings = json.load(f)
+                        crossover = 'nsga2'
+                        NGEN = 50
+                        settings.update({'crossover' : crossover})
+                        settings.update({'NGEN' : NGEN})
+                        for algorithm in algorithms:
+                            for nTasks in task_numbers:
+                                settings.update({'nTasks' : nTasks})
+                                settings.update({'experiment' : 'mmota'})
+                                settings.update({'task_creator' : task_creator})
+                                settings.update({'algorithm' : algorithm})
+                                settings.update({'NGEN_realloc' : 20})
+                                settings.update({'predictor' : predictor})
+                                old_results = pd.read_sql("experiments", con=db)
+                                min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
+                                datapath = f"datasets/{'static' if static else 'mobile'}/{nNodes}/{predictor if not static else ''}/positions_{i}.json"
+                                if static:
+                                    predpath = f"datasets/static/{nNodes}/positions_{i}.json"
+                                else:
+                                    predpath = f"datasets/mobile/{nNodes}/{predictor if not static else ''}/predictions_{i}.json"
+                                settings.update({'datapath' : datapath})
+                                settings.update({'predpath' : predpath})
+                                run = {'index' : min_index,
+                                   'experiment' : 'mmota',
+                                   'algorithm' : algorithm,
+                                   'status' : JobStatus.TODO,
+                                   'settings' : json.dumps(settings),
+                                   'datapath' : datapath
+                                    }
+                                df = pd.DataFrame(run, index=[0])
+                                df.set_index('index', inplace=True)
+                                df.to_sql('experiments', db, if_exists='append')
                 
 
 def fetch_run(index, db):
     runs = pd.read_sql("experiments", con=db)
     runs = runs.sort_values(by='index')
-    print(runs)
+    #print(runs)
     run= runs.iloc[[index]]
     print(f"fetched run {index}")
     return run
@@ -146,7 +142,7 @@ if __name__ == "__main__":
                 settings = json.loads(run.iloc[0]['settings'])
                 set_job_status(int(jobid), JobStatus.IN_PROGRESS, db)
                 try:
-                    run_algorithm(int(jobid),db, **settings)
+                    run_algorithm(int(jobid), db, **settings)
                 except Exception as e:
                     print(f"Error running experiment {jobid}: {e}")
                     set_job_status(int(jobid), JobStatus.FAILED, db)
