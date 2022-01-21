@@ -13,9 +13,33 @@ class GraphNode:
         self.posy = posy
         self.energy = energy
         self.pos = np.array([posx,posy])
+        self.nTasks = 0
+        self.nSending = 0
+        self.nProcessing = 0
+        self.nActuating= 0
+        self.successors=0
+        self.predecessors=0
     
     def __str__(self):
-        return(f"Graphnode at: {self.pos} with energy: {self.energy}")
+        return(f"Graphnode at: {self.pos} with energy: {self.energy}, nTasks: {self.nTasks}, nS: {self.nSending}, nP: {self.nProcessing}, nA: {self.nActuating}")
+
+    def update_energy(self, energy):
+        self.energy = energy
+
+    def update_task_data(self,task):
+        self.nTasks += 1
+        if task.task_type == "Sending":
+            self.nSending += 1
+        elif task.task_type == "Processing":
+            self.nProcessing +=1
+        elif task.task_type == "Actuating":
+            self.nActuating +=1
+        self.successors += len(task.outputs)
+        self.predecessors += len(task.inputs)
+          
+
+
+
 
 def Grid(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], **kwargs):
     "Create a  grid network with a 4-neighborhood"
@@ -78,7 +102,7 @@ def ManHattan(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], posList
 
 
 
-def Line(nNodes = 25, deltax = 100, energy_list = [1000]*25, **kwargs):
+def Line(nNodes=100, deltax = 100, energy_list = [1000]*25, **kwargs):
     G= nx.OrderedGraph()
     for i in range(nNodes):
         node = GraphNode(i*deltax,0,energy_list[i])
