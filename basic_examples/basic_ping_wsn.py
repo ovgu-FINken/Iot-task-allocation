@@ -72,7 +72,7 @@ mobility.SetPositionAllocator("ns3::GridPositionAllocator",
                               "GridWidth", ns.core.UintegerValue(5),
                               "LayoutType", ns.core.StringValue("RowFirst"))
 
-# mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel")
+mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel")
 
 # mobility.SetMobilityModel("ns3::RandomWalk2dMobilityModel",
 #                          "Bounds", ns.mobility.RectangleValue(ns.mobility.Rectangle (-100, 100, -100, 100)),
