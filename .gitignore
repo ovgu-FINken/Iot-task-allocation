@@ -16,3 +16,5 @@ cred.py
 
 datasets/*
 datasets_amota/*
+trainingdata/
+processed/

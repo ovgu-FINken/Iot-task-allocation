@@ -5,7 +5,6 @@ import time
 import topologies
 
 import numpy as np
-import matplotlib.pyplot as plt
 import networkx as nx
 
 import ns.core
@@ -18,7 +17,7 @@ import ns.sixlowpan
 import ns.energy
 import itertools
 
-
+from utils import checkIfAlive, remove_dead_nodes
 
 class Network:
     def __init__(self, networkGraph = None, positionSettings = {}, mobilitySettings = {}, appSettings= {}, initEnergyJ = 100, verbose = False, **kwargs):
@@ -473,47 +472,7 @@ def createTasksFromGraph(network, taskGraph = None, allocation = None, verbose =
         print("Finished task creation")
 
 
-def remove_dead_nodes(graph, energy, energy_only=False, **kwargs):
-    to_remove = []
-    for i,node in enumerate(list(graph.nodes())):
-        if node.energy <= 0.1*kwargs['init_energy']:
-            to_remove.append(node)
-        elif not kwargs['network_status'][i] and not energy_only:
-            to_remove.append(node)
-    graph.remove_nodes_from(to_remove)
 
-def checkIfAlive(allocation = [], verbose = False, **kwargs):
-    #graphs: [networkGraph, taskGraph, energy_list, graphType, networkType]
-    if verbose:
-        print("Performing network check")
-    time = 0
-    latency = 0
-    nNodes = kwargs['nNodes']
-    network_creator = topologies.network_topologies[kwargs['network_creator']]
-    nTasks = kwargs['nTasks']
-    task_creator = topologies.task_topologies[kwargs['task_creator']]
-    energy_list = kwargs['energy_list_sim']
-    node_status = kwargs['network_status']
-    init_energy = kwargs['init_energy']
-    networkGraph = network_creator(**kwargs)
-    taskGraph = task_creator(networkGraph, **kwargs)   
-    to_remove = []
-    for i,node in enumerate(list(networkGraph.nodes())):
-        if node.energy < 0.1*init_energy:
-            to_remove.append(node)
-        elif not node_status[i]:
-            to_remove.append(node)
-    networkGraph.remove_nodes_from(to_remove)
-    if len(networkGraph.nodes()) < 1:
-        print("network has 0 nodes left")
-        return False
-    if not(nx.is_connected(networkGraph)):
-        print(f"network is no longer connected: \
-                \n   status: {kwargs['network_status']} \
-                \n   energies: {kwargs['energy_list_sim']} \
-                " )
-        return False
-    return True
 
 def evaluate_surrogate(allocation = [], repeat = False, **kwargs):
     #return 0, 0, 0, kwargs['energy_list_eval'], kwargs['network_status'], 12
