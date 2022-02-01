@@ -25,7 +25,9 @@ from deap.benchmarks.tools import diversity, convergence, hypervolume
 from deap import creator
 from deap import tools
 import topologies
-from network import evaluate, checkIfAlive, evaluate_surrogate, remove_dead_nodes
+
+from utils import checkIfAlive, remove_dead_nodes
+
 from collections import defaultdict, namedtuple
 import argparse
 from individual import ListWithAttributes
@@ -447,7 +449,7 @@ def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, ar
       toolbox.register("map", pool.map)
    else:
       toolbox.register("map", map)
-   toolbox.register("evaluate", evaluate)
+   #toolbox.register("evaluate", evaluate)
    BOUND_LOW, BOUND_UP = 0.0, len(networkGraph.nodes())
    NDIM = 2
    if kwargs['crossover'] == 'nsga2':
@@ -468,9 +470,7 @@ def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, ar
    else:
       print("unrecognized algorithm")
       return -1
-   #row_alloc = creator.Individual([i for i in range(kwargs['nTasks'])])
-   #zero_alloc = creator.Individual([0]*nTasks)
-   #rev_alloc = creator.Individual([nTasks-(i+1) for i in range(kwargs['nTasks'])])
+   
    
    new_pop = toolbox.population(popSize-len(archive))
    print("seeding with")
@@ -484,6 +484,7 @@ def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, ar
    return pop, toolbox
 
 def evaluate_wrapper(args):
+   from network import evaluate
    allocation  = args[0]
    settings = args[1]
    index = args[2]
@@ -497,7 +498,58 @@ def evaluate_wrapper(args):
    lifetime, latency, nMissed, energy_list = evaluate(allocation, **settings)
    return lifetime, latency, nMissed, energy_list
 
-def assign_fitnesses(pop,fitnesses,algorithm):
+
+def evaluate_surrogate(args):
+   from gcn import GCN
+   import torch
+   from torch_geometric.utils.convert import to_networkx, from_networkx
+   from torch_geometric.loader import DataLoader
+   from torch_geometric.data import Data
+
+   model = GCN()
+   allocation = args[0]
+   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+   model.load_state_dict(torch.load('model_dict.pt', map_location=device))
+   model.to(device)
+   model.eval()
+   
+   allocation  = args[0]
+   settings = args[1]
+   index = args[2]
+
+   nNodes = settings['nNodes']
+   network_creator = topologies.network_topologies[settings['network_creator']]
+   nTasks = settings['nTasks']
+   task_creator = topologies.task_topologies[settings['task_creator']]
+   energy_list = settings['energy_list_sim']
+   networkGraph = network_creator(**settings)
+   taskGraph = task_creator(networkGraph, **settings)   
+   
+   for task, node in enumerate(allocation):
+       list(networkGraph.nodes)[node].update_task_data(list(taskGraph.nodes)[task])
+
+   for node in list(networkGraph.nodes(data=True)):
+       x = []
+       for key, value in vars(node[0]).items():
+           if not (key == 'pos'):
+               x.append(value)
+       
+       node[1].clear()
+       node[1].update({'x' : x})
+       node[1].update({'y' : x})
+   
+   pyg_graph = from_networkx(networkGraph)
+   
+
+   loader = DataLoader([pyg_graph], batch_size =1)
+   y = 0
+   for i, data in enumerate(loader):
+      d = data.to(device)
+      y = model(d)
+      print(y.data)
+   return y[0][0].item(), y[0][1].item(), y[0][3].item() 
+
+def assign_fitnesses(pop,fitnesses,algorithm, eval_mode):
   for ind, fit in zip(pop, fitnesses):
     if algorithm == 'nsga2':
       ind.fitness.values = fit[:3]
@@ -512,7 +564,8 @@ def assign_fitnesses(pop,fitnesses,algorithm):
     ind.lifetime = fit[0]
     ind.latency = fit[1]
     ind.nMissed = fit[2]
-    ind.energy = fit[3]
+    if eval_mode == 'sim':
+      ind.energy = fit[3]
   return pop
 
 def select_parents(pop, toolbox, n_selected, algorithm):
@@ -556,6 +609,8 @@ def main(archive = [], archivestats={}, **kwargs):
     n_selected = MU if (kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota' or kwargs['algorithm'] =='mmota') else int((MU*0.8)/2)
     algorithm = kwargs['algorithm']
     prediction = kwargs['prediction_data']
+    eval_mode = kwargs['eval_mode']
+
     logbook = tools.Logbook()
     logbook.header = "gen", "evals", "std", "min", "avg", "max"
     
@@ -588,7 +643,10 @@ def main(archive = [], archivestats={}, **kwargs):
     if not continue_run:
        raise exceptions.NetworkDeadException
     try:
-      fitnesses = toolbox.map(evaluate_wrapper, mapped)
+       if kwargs['eval_mode'] == 'sim':
+         fitnesses = toolbox.map(evaluate_wrapper, mapped)
+       else:
+         fitnesses = toolbox.map(evaluate_surrogate, mapped)
     except exceptions.NoValidNodeException:
       raise exceptions.NetworkDeadException
     except exceptions.NetworkDeadException as e:
@@ -596,7 +654,7 @@ def main(archive = [], archivestats={}, **kwargs):
     except Exception as e:
        print(f"Error during ea gen: {e}")
        raise e
-    pop = assign_fitnesses(pop, fitnesses, algorithm) 
+    pop = assign_fitnesses(pop, fitnesses, algorithm, eval_mode) 
     #crowding distance assignment
     if algorithm == 'nsga2' or algorithm == 'mmota':
        pop = toolbox.select(pop, len(pop))
@@ -620,7 +678,10 @@ def main(archive = [], archivestats={}, **kwargs):
         invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
         mapped = zip(pop, itertools.repeat(kwargs),list(range(len(pop))))
         try:
-          fitnesses = toolbox.map(evaluate_wrapper, mapped)
+          if kwargs['eval_mode'] == 'sim':
+            fitnesses = toolbox.map(evaluate_wrapper, mapped)
+          else:
+            fitnesses = toolbox.map(evaluate_surrogate, mapped)
         except exceptions.NoValidNodeException:
           raise exceptions.NetworkDeadException
         except exceptions.NetworkDeadException as e:
@@ -628,7 +689,7 @@ def main(archive = [], archivestats={}, **kwargs):
         except Exception as e:
            print(f"error during ea loop: {e}")
            raise e
-        assign_fitnesses(invalid_ind, fitnesses, algorithm) 
+        assign_fitnesses(invalid_ind, fitnesses, algorithm, eval_mode) 
         # Select the next generation population
         pop = toolbox.select(pop + offspring, len(pop))
         if algorithm == 'rmota':
@@ -652,7 +713,10 @@ def main(archive = [], archivestats={}, **kwargs):
         settings_predicted.update({'prediction_data' : []})
         mapped = zip(pop, itertools.repeat(settings_predicted),[0,1])
         try:
-          fitnesses = toolbox.map(evaluate_wrapper, mapped)
+          if kwargs['eval_mode'] == 'sim':
+            fitnesses = toolbox.map(evaluate_wrapper, mapped)
+          else:
+            fitnesses = toolbox.map(evaluate_surrogate, mapped)
         except exceptions.NoValidNodeException:
           raise exceptions.NetworkDeadException
         except exceptions.NetworkDeadException as e:
@@ -660,7 +724,7 @@ def main(archive = [], archivestats={}, **kwargs):
         except Exception as e:
            print(f"Error during ea finish: {e}")
            raise e
-        assign_fitnesses([best1, best2], fitnesses, 'mmota')
+        assign_fitnesses([best1, best2], fitnesses, 'mmota', eval_mode)
       else:
         pfront = tools.sortNondominated(pop, len(pop), True)[0]
         best = tools.selBest(pfront,1)
@@ -702,6 +766,9 @@ def save(index, db, bests, fronts, settings):
       print(x.lifetime)
       print(x.latency)
       print(x.nMissed)
+
+
+
 
 def run_algorithm(index, db, **settings):  
     import sqlalchemy as sql
@@ -775,13 +842,13 @@ def run_algorithm(index, db, **settings):
 
 if __name__ == "__main__":
   import sqlalchemy as sql
-  nNodes = 81
+  nNodes = 49
   mobileNodes = 0
   dims = 7
   energy = 100
   network_creator = topologies.ManHattan
-  task_creator = None
-  nTasks = 19
+  task_creator = topologies.EncodeDecode
+  nTasks = 49
   if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
       nNodes = dims**2
   if network_creator == topologies.Line:
@@ -790,7 +857,8 @@ if __name__ == "__main__":
   energy_list = [energy]*nNodes
   task_creator = 'EncodeDecode'
   network_creator = 'Manhattan'
-  algorithm = 'mmota'
+  algorithm = 'nsga2'
+  eval_mode = 'surrogate'
   for i in range(11):
     settings = {'nNodes' : nNodes,
                'mobileNodeCount' : mobileNodes,
@@ -817,14 +885,15 @@ if __name__ == "__main__":
                'run_number' : i,
                'predictor' : 'perfect',
                'datapath' : f"datasets/mobile/81/perfect/positions_{i}.json",
-               'predpath' : f"datasets/mobile/81/perfect/predictions_{i}.json"
+               'predpath' : f"datasets/mobile/81/perfect/predictions_{i}.json",
+               'eval_mode' : eval_mode
                }
   settings.update({'nTasks' : nTasks})
   settings.update({'crossover' : 'nsga2'})
-  settings.update({'experiment' : 'mmota'})
+  settings.update({'experiment' : 'mota'})
   settings.update({'task_creator' : task_creator})
   settings.update({'algorithm' : algorithm})
   settings.update({'NGEN_realloc' : 2})
-  settings.update({'NGEN' : 2})
+  settings.update({'NGEN' : 100})
   db = sql.create_engine('postgresql+psycopg2://dweikert:mydbcuzwhohacksthis@10.61.14.160:5432/dweikert')
   run_algorithm(500, db, **settings)
