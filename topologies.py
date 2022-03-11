@@ -38,8 +38,81 @@ class GraphNode:
         self.predecessors += len(task.inputs)
           
 
+def Star(energy_list = [], **kwargs):
+    G = nx.OrderedGraph()
+    x0 = -160
+    y0 = 0
+    i = 0
+    
+    node = GraphNode(x0-40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0-40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0, y0, energy_list[i])
+    G.add_node(GraphNode(x0, y0, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+
+    
+    x0 = 160
+    y0 = 0
+    node = GraphNode(x0-40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0-40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0, y0, energy_list[i])
+    G.add_node(GraphNode(x0, y0, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    
+    x0 = 0
+    y0 = 0
+    node = GraphNode(x0-40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0-40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0, y0, energy_list[i])
+    G.add_node(GraphNode(x0, y0, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
 
 
+    x0 = 0
+    y0 = 160
+    node = GraphNode(x0-40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0-40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0, y0, energy_list[i])
+    G.add_node(GraphNode(x0, y0, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    
+    x0 = 0
+    y0 = -160
+    node = GraphNode(x0-40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0-40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0-40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0, y0, energy_list[i])
+    G.add_node(GraphNode(x0, y0, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0-40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0-40, energy_list[i]), pos = node.pos, energy = node.energy)
+    node = GraphNode(x0+40, y0+40, energy_list[i])
+    G.add_node(GraphNode(x0+40, y0+40, energy_list[i]), pos = node.pos, energy = node.energy)
+    for node1,node2 in combinations(G.nodes(),2):
+        dist = la.norm(node1.pos - node2.pos)
+        if dist <= 100:
+            G.add_edge(node1,node2)
+    return G
 
 def Grid(dimx = 9,dimy = 9, deltax=100, deltay=100, energy_list=[], **kwargs):
     "Create a  grid network with a 4-neighborhood"
@@ -189,6 +262,7 @@ def EncodeDecode(networkGraph = None, nTasks = 19, deltax = 100, deltay = 100, m
     posEncode = np.array([list(staticNodes)[0].pos[0]-deltax+1, list(staticNodes)[int(ndim/2)].pos[0]+deltax-1])
     boundEncode = np.array([posEncode, np.array([-np.inf, np.inf])])
     if verbose:
+        print(f"dims : {ndim}")
         print(f"Boundary for encode: {boundEncode}")
     posDecode = np.array([list(staticNodes)[int(ndim/2)].pos[0]-deltax+1, list(staticNodes)[-1].pos[0]+deltax-1])
     boundDecode = np.array([posDecode, np.array([-np.inf, np.inf])])
@@ -246,6 +320,12 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
         posCenterx = np.array([list(networkGraph.nodes())[int(ndim/2)].pos[0]-101, list(networkGraph.nodes())[int(ndim/2)].pos[0]+101])
         posCentery = np.array([list(networkGraph.nodes())[int(ndim/2)*ndim].pos[1]-101, list(networkGraph.nodes())[int(ndim/2)*ndim].pos[1]+101])
         boundCenter = np.array([posCenterx, posCentery])
+    if kwargs['network_creator'] == topologies.Star:
+        boundCenter = np.array([[-50, 50], [-50,50]])
+        boundLeft = np.array([[-250, -50], [-50,50]])
+        boundRight = np.array([[50, 250], [-50,50]])
+        boundTop = np.array([[-50, 50], [50, 250]])
+        boundBottom = np.array([[-50, 50], [-250, -50]])
     else:
         midTask = int(kwargs['nTasks']/2) #actually right task of the two middling tasks
         #includes the left neighbor as a possible sink task
@@ -255,27 +335,47 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
     if verbose:
         print(f"Boundary for center: {boundCenter}")
     
-    for i in range(kwargs['nTasks']-1):
-        G.add_node(Task({'location' : None}))
+    
+    if kwargs['network_creator'] == topologies.Star:
+        for i in range(1):
+            G.add_node(Task({'location' : boundCenter}))
+        for i in range(2):
+            G.add_node(Task({'location' : boundLeft}))
+        for i in range(2):
+            G.add_node(Task({'location' : boundRight}))
+        for i in range(2):
+            G.add_node(Task({'location' : boundTop}))
+        for i in range(2):
+            G.add_node(Task({'location' : boundBottom}))
+    
+        for i in range(8):
+            G.add_edge(list(G.nodes())[i+1], list(G.nodes())[0])
 
-    G.add_node(Task(center_constraint))
 
-    for i in range(kwargs['nTasks']-1):
-        G.add_edge(list(G.nodes())[i], list(G.nodes())[-1])
+    else:
+        for i in range(kwargs['nTasks']-1):
+            G.add_node(Task({'location' : None}))
+        
+
+
+        G.add_node(Task(center_constraint))
+
+        for i in range(kwargs['nTasks']-1):
+            G.add_edge(list(G.nodes())[i], list(G.nodes())[-1])
 
     for task in G.nodes():
         task.set_topology(G)
-
     return G
 
 network_topologies = { 'Grid' : Grid,
                        'Line' : Line,
-                       'Manhattan' : ManHattan}
+                       'Manhattan' : ManHattan,
+                       'Star' : Star}
 
 task_topologies = { 'TwoTask' : TwoTask,
                     'TwoTaskWithProcessing' : TwoTaskWithProcessing,
                     'EncodeDecode' : EncodeDecode,
-                    'OneSink' : OneSink
+                    'OneSink' : OneSink,
                     }
 
 

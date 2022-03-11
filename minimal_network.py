@@ -7,7 +7,6 @@ import networkx as nx
 import ns.core
 import ns.network
 import ns.applications
-import ns.lr_wpan
 import ns.mobility
 import ns.sixlowpan
 import ns.energy
@@ -18,7 +17,7 @@ start = timer.time()
 nNodes = 81
 mobileNodes = 0
 nTasks = 13
-dims = 9
+dims = 5
 #nTasks = dims*2-1
 energy = 100
 network_creator = topologies.ManHattan
@@ -138,7 +137,7 @@ ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
 ns.core.Simulator.ScheduleDestroy(getTime, time)
 ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
 #ns.core.Simulator.Schedule(ns.core.Time(1), net.sendAllocationMessages)    
-ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(100)))
+ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(58)))
 t1 = timer.time()
 ns.core.Simulator.Run()
 ns.core.Simulator.Destroy()
@@ -159,7 +158,7 @@ print(f"every sendtask sent: {send_list}")
 print(f"act received: {act_list}")
 missed_packages = sent_list[0] - received_list[0]
 percentage = missed_packages/sent_list[0] if sent_list[0] > 0 else 1
-print(f"missed packages:{missed_packages}") 
+print(f"missed packages:{missed_packages}, {percentage}% of {sent_list[0]}") 
 #print(f"Seqnums: {list(seqNumTx)}")
 #for x in seqNumTx:
 #    print(list(x))

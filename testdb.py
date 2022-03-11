@@ -2,8 +2,7 @@
 import sqlalchemy as sql
 import pandas as pd
 import json
-import cred 
-
+import cred
 db = sql.create_engine(f'postgresql+psycopg2://{cred.user}:{cred.passwd}@{cred.vm}')
 task_setups = ['OneSink']
 task_numbers = [20,40,80]

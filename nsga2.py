@@ -485,38 +485,34 @@ def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, ar
 
 def evaluate_wrapper(args):
    from network import evaluate
+   #print("evaluating in ns3")
    allocation  = args[0]
    settings = args[1]
    index = args[2]
-   posList = [[x[0], x[1]] for x in settings['prediction_data']]
-   if len(posList) > 0:
-     confidence = min([x[2] for x in settings['prediction_data']])
-     if settings['algorithm'] == 'mmota' and index < max(confidence * 100, 20):
-       settings_predicted = copy.deepcopy(settings)
-       settings_predicted.update({'node_data' : posList})
-       lifetime, latency, nMissed, energy_list = evaluate(allocation, **settings_predicted)
-   lifetime, latency, nMissed, energy_list = evaluate(allocation, **settings)
+   
+  # if settings['experiment'] == 'mmota':
+  #    posList = [[x[0], x[1]] for x in settings['prediction_data']]
+  #    if len(posList) > 0:
+  #      confidence = min([x[2] for x in settings['prediction_data']])
+  #      if settings['algorithm'] == 'mmota' and index < max(confidence * 100, 20):
+  #        settings_predicted = copy.deepcopy(settings)
+  #        settings_predicted.update({'node_data' : posList})
+  #        lifetime, latency, nMissed, missed_perc, missed_packages, percentage, energy_list = evaluate(allocation, **settings_predicted)
+  #      else:
+  #        lifetime, latency, nMissed, missed_perc, missed_packages, percentage, energy_list = evaluate(allocation, **settings)
+  # else: 
+      #print("---------------------------------------------------------")
+      #print(f" SETTINGS: {settings}")
+   lifetime, latency, nMissed, missed_perc, missed_packages, percentage, energy_list = evaluate(allocation, stopTime = 100, **settings)
+   #print(lifetime, latency, nMissed, missed_perc, missed_packages, percentage)
    return lifetime, latency, nMissed, energy_list
 
 
 def evaluate_surrogate(args):
-   from gcn import GCN
-   import torch
-   from torch_geometric.utils.convert import to_networkx, from_networkx
-   from torch_geometric.loader import DataLoader
-   from torch_geometric.data import Data
-
-   model = GCN()
-   allocation = args[0]
-   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-   model.load_state_dict(torch.load('model_dict.pt', map_location=device))
-   model.to(device)
-   model.eval()
-   
-   allocation  = args[0]
+   #print("evaluating in surrogate")
    settings = args[1]
+   allocation  = args[0]
    index = args[2]
-
    nNodes = settings['nNodes']
    network_creator = topologies.network_topologies[settings['network_creator']]
    nTasks = settings['nTasks']
@@ -528,26 +524,49 @@ def evaluate_surrogate(args):
    for task, node in enumerate(allocation):
        list(networkGraph.nodes)[node].update_task_data(list(taskGraph.nodes)[task])
 
-   for node in list(networkGraph.nodes(data=True)):
-       x = []
-       for key, value in vars(node[0]).items():
-           if not (key == 'pos'):
-               x.append(value)
-       
-       node[1].clear()
-       node[1].update({'x' : x})
-       node[1].update({'y' : x})
-   
-   pyg_graph = from_networkx(networkGraph)
-   
+   if settings['surrogate'] == 'gnn':
+      from gcn import GCN
+      import torch
+      from torch_geometric.utils.convert import to_networkx, from_networkx
+      from torch_geometric.loader import DataLoader
+      from torch_geometric.data import Data
 
-   loader = DataLoader([pyg_graph], batch_size =1)
-   y = 0
-   for i, data in enumerate(loader):
-      d = data.to(device)
-      y = model(d)
-      print(y.data)
-   return y[0][0].item(), y[0][1].item(), y[0][3].item() 
+      model = GCN()
+      allocation = args[0]
+      device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+      model.load_state_dict(torch.load('model_dict.pt', map_location=device))
+      model.to(device)
+      model.eval()
+      for node in list(networkGraph.nodes(data=True)):
+          x = []
+          for key, value in vars(node[0]).items():
+              if not (key == 'pos'):
+                  x.append(float(value))
+          
+          node[1].clear()
+          
+          node[1].update({'x' : x})
+          node[1].update({'y' : 0.0})
+      
+      pyg_graph = from_networkx(networkGraph)
+      
+
+      loader = DataLoader([pyg_graph], batch_size =1)
+      y = 0
+      for i, data in enumerate(loader):
+         d = data.to(device)
+         #print(d.x)
+         #print(d.y)
+         y = model(d)
+         #print(y.data)
+      return y[0][0].item(), y[0][1].item(), y[0][3].item() 
+   
+   elif settings['surrogate'] =='graph':
+      from graphmodel import predict
+      nl, l, a = predict(networkGraph, taskGraph, allocation, settings)
+      return nl, l, a
+   elif settings['surrogate'] == 'rand':
+      return -random.random(), random.random(), random.random(), settings["energy_list_sim"], settings['network_status']
 
 def assign_fitnesses(pop,fitnesses,algorithm, eval_mode):
   for ind, fit in zip(pop, fitnesses):
@@ -592,8 +611,8 @@ def generate_offspring(offspring, toolbox, CXPB, algorithm):
     return offspring
 
 def main(archive = [], archivestats={}, **kwargs):
-    for key,val in kwargs.items():
-       print(f"{key} : {val}")
+    #for key,val in kwargs.items():
+       #print(f"{key} : {val}")
     seed = kwargs['seed'] 
     random.seed(seed)
     np.random.seed(seed)
@@ -608,7 +627,8 @@ def main(archive = [], archivestats={}, **kwargs):
     eta = 20
     n_selected = MU if (kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota' or kwargs['algorithm'] =='mmota') else int((MU*0.8)/2)
     algorithm = kwargs['algorithm']
-    prediction = kwargs['prediction_data']
+    if algorithm == 'mmota':
+       prediction = kwargs['prediction_data']
     eval_mode = kwargs['eval_mode']
 
     logbook = tools.Logbook()
@@ -623,7 +643,15 @@ def main(archive = [], archivestats={}, **kwargs):
     taskGraph = task_creator(networkGraph, **kwargs)   
     
     aliveGraph = network_creator(**kwargs)
+    print("ENERGY")
+    print(kwargs['init_energy'])
+    print(energy_list)
     remove_dead_nodes(aliveGraph, energy_list, **kwargs)
+    posL = [[float(node.posx), float(node.posy)] for node in networkGraph.nodes()]
+    #settings = kwargs['settings']
+    #settings.update({'posList' : posL})
+    kwargs.update({'posList' : posL})
+    #print(kwargs)
     try:
        pop, toolbox= setup_run(aliveGraph, taskGraph, eta, archive= archive, archivestats=archivestats, **kwargs)
     except exceptions.NoValidNodeException:
@@ -741,7 +769,7 @@ def save(index, db, bests, fronts, settings):
     import pandas as pd 
     import json
     import pickle
-    old_results = pd.read_sql("results_mobility", con=db)
+    old_results = pd.read_sql("results_surrogates", con=db)
     #min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
     results = {'index' : index,
                'bests' : pickle.dumps(bests),
@@ -751,12 +779,17 @@ def save(index, db, bests, fronts, settings):
                'nnodes' : settings['nNodes'],
                'ntasks' : settings['nTasks'],
                'static' : settings['static'],
+               'eval_mode' : settings['eval_mode'],
                'predictor' : settings['predictor']
                }
     df = pd.DataFrame(results, index=[index])
     df.set_index('index', inplace=True)
     print(df)
-    df.to_sql('results_mobility', db, if_exists='append')
+    df.to_sql('results_surrogates', db, if_exists='append')
+    df.to_sql('results_surrogates', db, if_exists='append')
+    from pathlib import Path
+    Path(f"{settings['datapath']}").mkdir(parents=True, exist_ok=True)
+
     with open(f"{settings['datapath'][:-5]}_bests{index}.pck","wb+") as f:
       pickle.dump(bests, f)
     with open(f"{settings['datapath'][:-5]}_fronts{index}.pck","wb+") as f:
@@ -766,8 +799,10 @@ def save(index, db, bests, fronts, settings):
       print(x.lifetime)
       print(x.latency)
       print(x.nMissed)
-
-
+      print(x.missed_perc)
+      print(x.missed_packages)
+      print(x.percentage)
+      print()
 
 
 def run_algorithm(index, db, **settings):  
@@ -775,52 +810,85 @@ def run_algorithm(index, db, **settings):
     import pandas as pd 
     import json
     import pickle
+    from network import evaluate
     bests = []
     objectives = []
     recursive = True
     fronts = []
     setup_ea(**settings)
+    settings.update({'NGEN' : 100})
     algorithm = settings['algorithm']
     print(settings)
     node_data = []
     prediction_data = []
-    with open(settings['datapath']) as f:
-      node_data = json.load(f)
-    
-    with open(settings['predpath']) as f:
-      prediction_data = json.load(f)
+    if algorithm == 'mmota':
+       with open(settings['datapath']) as f:
+         node_data = json.load(f)
+       
+       with open(settings['predpath']) as f:
+         prediction_data = json.load(f)
     #inital run:
-    print(node_data[0])
-    settings.update({'network_status' : node_data[0]})
-    settings.update({'posList' : node_data[0]})
-    settings.update({'prediction_data' : []})
+       print(node_data[0])
+       settings.update({'network_status' : node_data[0]})
+       settings.update({'posList' : node_data[0]})
+       settings.update({'prediction_data' : []})
     enl = settings['energy_list']
 
     settings.update({'energy_list_sim' : enl})
     pop, stats, best, archive, archivestats = main(archive = [], archivestats = {}, **settings)
     best = best[0]
-    bests.append(best)
     front = tools.sortNondominated(pop, len(pop), True)[0]
     fronts.append(front)
     #new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(best, **settings)
-    nl, l, nmissed, new_energy_list = evaluate(best, **settings)
-    nsteps = min([len(node_data), len(prediction_data)])-2
-    nsteps = min([nsteps,20])
+    nl, l, nmissed, missed_perc, missed_packages, percentage, new_energy_list = evaluate(best, stopTime = 20000, **settings)
+    best = copy.deepcopy(best)
+    best.lifetime = nl
+    best.latency = l
+    best.nmissed = nmissed
+    best.missed_perc = missed_perc
+    best.missed_packages= missed_packages
+    best.percentage = percentage
+    print(best)
+    bests.append(best)
+    print(bests)
+    print(f"Current allocation performance: {nl}, {l}, {nmissed}, {missed_perc}, {missed_packages}, {percentage}")
+    print(new_energy_list)
+    if algorithm == 'mmota':
+      nsteps = min([len(node_data), len(prediction_data)])-2
+      nsteps = min([nsteps,20])
+    else:
+       nsteps = 1000
     try:
       for i in range(1,nsteps):
-        print(f"planning reallocations: {nsteps-i} to go" )
+         #print(f"planning reallocations: {nsteps-i} to go" )
         settings.update({'energy_list_sim' : new_energy_list})
-        settings.update({'network_status' : node_data[i]})
-        settings.update({'posList' : node_data[i]})
-        settings.update({'prediction' : prediction_data[i]}) 
-        print(node_data[i])
-        print(prediction_data[i])
-        NGEN = settings['NGEN_realloc'] if 'NGEN_realloc' in settings.keys() else 10
-        settings.update({'NGEN' : NGEN})
+        settings.update({'energy_list' : new_energy_list})
+        if algorithm == 'mmota':
+         settings.update({'network_status' : node_data[i]})
+         settings.update({'posList' : node_data[i]})
+         settings.update({'prediction' : prediction_data[i]}) 
+         #print(node_data[i])
+         #print(prediction_data[i])
+         NGEN = settings['NGEN_realloc'] if 'NGEN_realloc' in settings.keys() else 10
+         #settings.update({'NGEN' : NGEN})
         
+        best = []
         pop, stats, best, archive, archivestats = main(archive = archive, archivestats=archivestats, **settings)
         best = best[0]
+        nl, l, nmissed, missed_perc, missed_packages, percentage, new_energy_list = evaluate(best, stopTime = 20000, **settings)
+        print(new_energy_list)
+        print(f"Current allocation performance: {nl}, {l}, {nmissed}, {missed_perc}, {missed_packages}, {percentage}")
+        settings.update({'energy_list_sim' : new_energy_list})
+        best = copy.deepcopy(best)
+        best.lifetime = nl
+        best.latency = l
+        best.nmissed = nmissed
+        best.missed_perc = missed_perc
+        best.missed_packages= missed_packages
+        best.percentage = percentage
+        print(best)
         bests.append(best)
+        print(bests)
         front = tools.sortNondominated(pop, len(pop), True)[0]
         fronts.append(front)
     except exceptions.NetworkDeadException:
@@ -842,24 +910,28 @@ def run_algorithm(index, db, **settings):
 
 if __name__ == "__main__":
   import sqlalchemy as sql
+  import cred 
+  import time
   nNodes = 49
   mobileNodes = 0
   dims = 7
   energy = 100
   network_creator = topologies.ManHattan
   task_creator = topologies.EncodeDecode
-  nTasks = 49
+  task_creator = 'EncodeDecode'
+  network_creator = 'Manhattan'
+  eval_mode = 'surrogate'
+  surrogate = 'rand'
+  nTasks = 25
   if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
       nNodes = dims**2
   if network_creator == topologies.Line:
       dims = nNodes
   nNodes = nNodes + mobileNodes
   energy_list = [energy]*nNodes
-  task_creator = 'EncodeDecode'
-  network_creator = 'Manhattan'
+  network_status = [1]*nNodes
   algorithm = 'nsga2'
-  eval_mode = 'surrogate'
-  for i in range(11):
+  for i in range(2):
     settings = {'nNodes' : nNodes,
                'mobileNodeCount' : mobileNodes,
                'network_creator' : network_creator,
@@ -872,6 +944,7 @@ if __name__ == "__main__":
                'energy_list' : energy_list ,
                'energy_list_sim' : energy_list ,
                'posList' : [],
+               'network_status' : network_status,
                'init_energy' : energy,
                'verbose' : False,
                'capture_packets' : False,
@@ -884,9 +957,9 @@ if __name__ == "__main__":
                'static' : True,
                'run_number' : i,
                'predictor' : 'perfect',
-               'datapath' : f"datasets/mobile/81/perfect/positions_{i}.json",
-               'predpath' : f"datasets/mobile/81/perfect/predictions_{i}.json",
-               'eval_mode' : eval_mode
+               'eval_mode' : eval_mode,
+               'surrogate' : surrogate
+               
                }
   settings.update({'nTasks' : nTasks})
   settings.update({'crossover' : 'nsga2'})
@@ -894,6 +967,15 @@ if __name__ == "__main__":
   settings.update({'task_creator' : task_creator})
   settings.update({'algorithm' : algorithm})
   settings.update({'NGEN_realloc' : 2})
-  settings.update({'NGEN' : 100})
-  db = sql.create_engine('postgresql+psycopg2://dweikert:mydbcuzwhohacksthis@10.61.14.160:5432/dweikert')
-  run_algorithm(500, db, **settings)
+  settings.update({'NGEN' : 1})
+  #db = sql.create_engine(f'postgresql+psycopg2://{cred.user}:{cred.passwd}@{cred.vm}')
+  setup_ea(**settings)
+  t_l = []
+  for i in range(11):
+    t_start = time.time()
+    pop, stats, best, archive, archivestats = main(archive = [], archivestats = {}, **settings)
+    t_end = time.time()
+    t_l.append(t_end-t_start)
+  print(np.mean(t_l))
+ 
+  #run_algorithm(50u0, db, **settings)

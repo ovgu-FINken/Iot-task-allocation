@@ -26,7 +26,7 @@ class Task():
                     constrained_nodes = [node for node in constrained_nodes if self.check_location_constraint(node.pos)]
                     if len(constrained_nodes) == 0:
                         #no node satisfying constraint, RIP
-                        raise NoValidNodeException("No node satisfying positional constraints")
+                        raise NoValidNodeException(f"No node satisfying positional constraint {self.constraints}")
             else:
                 #found a constraint thas is not yet implemented?!
                 raise NotImplementedError(f"Constraint '{constraint}' is not implemented for constraint checking")

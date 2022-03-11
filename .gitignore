@@ -18,3 +18,5 @@ datasets/*
 datasets_amota/*
 trainingdata/
 processed/
+slurmvenv/*
+surrogate_data/*

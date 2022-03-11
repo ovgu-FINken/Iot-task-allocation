@@ -71,7 +71,7 @@ def sortEpsilonNondominated(individuals, k, first_front_only=False):
     return fronts
 
 def grab_data(db):
-    df2 = pd.read_sql('results_mobility', db)
+    df2 = pd.read_sql('results_surrogates_final', db)
     df3 = pd.read_sql('experiments', db)
     return df2, df3
 

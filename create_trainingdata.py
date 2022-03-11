@@ -25,12 +25,30 @@ import torch
 from torch_geometric.utils.convert import to_networkx, from_networkx
 
 def create_training_batch(nNodes, dims, energy, nTasks, network_creator, task_creator, i):
-    energy_list=[energy]*nNodes
-    network_status = [1]*nNodes
     if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
         nNodes = dims**2
     if network_creator == topologies.Line:
         dims = nNodes
+    network_status = [1]*nNodes
+    energy_list=[energy]*nNodes
+    if i >= 7000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*100+10 for x in energy_list]
+    if i >= 14000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*50+10 for x in energy_list]
+    if i >= 21000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*75+10 for x in energy_list]
+    if i >= 28000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*100+10 for x in energy_list]
+    if i >= 29000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*50+10 for x in energy_list]
+    if i >= 30000:
+        energy_list = np.random.random(nNodes)
+        energy_list = [x*75+10 for x in energy_list]
     settings = {'nNodes' : nNodes,
                      'mobileNodeCount' : 0,
                      'network_creator' : network_creator,
@@ -112,11 +130,11 @@ def create_training_batch(nNodes, dims, energy, nTasks, network_creator, task_cr
     NL = calculateGroupFailure(networkGraph,taskGraph,energy_list, time[0], settings)
     usable = True
     if missed_perc >= 1:
-        latency = np.inf
+        latency = 99999
         usable = False
     y=[NL,latency, nMissed, missed_perc, missed_packages, percentage]
 
-
+    
     for task, node in enumerate(allocation):
         list(networkGraph.nodes)[node].update_task_data(list(taskGraph.nodes)[task])
 
@@ -136,27 +154,116 @@ def create_training_batch(nNodes, dims, energy, nTasks, network_creator, task_cr
     #print(pyg_graph)
     #print(pyg_graph.x)
     #print(pyg_graph.y)
+    print(y)
     net.controlTask = 0
     net.cleanUp()
     net = 0
     return pyg_graph, usable
 
 
+dim_list = [5,7,9]
+nTask_list = [13,49,73]
 
 if __name__ == "__main__":
-    nNodes= 81
-    dims = 5
-    nTasks = 13
-    energy = 100
     i = int(sys.argv[1])
-    network_creator = topologies.ManHattan
-    task_creator = topologies.EncodeDecode
+    nNodes = 81
+    nTasks = 13
+    energy=100
+    if i < 7000:
+        if i < 1000:
+            dims=5
+        elif i < 2000:
+            dims=7
+        elif i < 3000:
+            dims = 9
+        elif i < 4000:
+            nTasks = 25
+            dims = 5
+        elif i < 5000:
+            nTasks = 25
+            dims = 7
+        elif i < 6000:
+            nTasks = 37
+            dims = 5
+        elif i < 7000:
+            nTasks = 37
+            dims = 7
+    if i >= 7000 and i <14000:
+        j = i
+        i-=7000
+        if i < 1000:
+            dims=5
+        elif i < 2000:
+            dims=7
+        elif i < 3000:
+            dims = 9
+        elif i < 4000:
+            nTasks = 25
+            dims = 5
+        elif i < 5000:
+            nTasks = 25
+            dims = 7
+        elif i < 6000:
+            nTasks = 37
+            dims = 5
+        elif i < 7000:
+            nTasks = 37
+            dims = 7
+        i = j
+    elif i >= 14000 and i < 21000:
+        j = i
+        i-=14000
+        if i < 1000:
+            dims=5
+        elif i < 2000:
+            dims=7
+        elif i < 3000:
+            dims = 9
+        elif i < 4000:
+            nTasks = 25
+            dims = 5
+        elif i < 5000:
+            nTasks = 25
+            dims = 7
+        elif i < 6000:
+            nTasks = 37
+            dims = 5
+        elif i < 7000:
+            nTasks = 37
+            dims = 7
+        i = j
+    elif i >= 21000:
+        j = i
+        i-=21000
+        if i < 1000:
+            dims=5
+        elif i < 2000:
+            dims=7
+        elif i < 3000:
+            dims = 9
+        elif i < 4000:
+            nTasks = 25
+            dims = 5
+        elif i < 5000:
+            nTasks = 25
+            dims = 7
+        elif i < 6000:
+            nTasks = 37
+            dims = 5
+        elif i < 7000:
+            nTasks = 37
+            dims = 7
+        i = j
+    if i >= 28000:
+        nNodes = 25
+        dims = 1
+        nTasks = 9
+        energy = 100
+    network_creator = topologies.Star
+    task_creator = topologies.OneSink
     data, usable = create_training_batch(nNodes, dims, energy, nTasks, network_creator, task_creator, i)
-    if i%25 == 0:
-        print(f"Processed {i+1} out of 1000 allocations")
-        #print(data.y)
     torch.save(data, f"{os.getcwd()}/trainingdata/data{i}.pt")
-
+    print(f"finished {i}")
 
 
 
