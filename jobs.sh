@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --output=logs/surrogates.%A_%a.log
+#SBATCH --output=logs/errorrate.%A_%a.log
 #SBATCH --partition=ci
-#SBATCH --array=90-160
+#SBATCH --array=0-43
 #SBATCH --cpus-per-task=1
 
 

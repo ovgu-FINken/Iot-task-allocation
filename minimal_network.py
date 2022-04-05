@@ -8,16 +8,18 @@ import ns.core
 import ns.network
 import ns.applications
 import ns.mobility
-import ns.sixlowpan
 import ns.energy
+import ns.wifi
+import ns.internet
+import ns.aodv
 import itertools
 import time as timer
 
 start = timer.time()
-nNodes = 81
+nNodes = 49
 mobileNodes = 0
-nTasks = 13
-dims = 5
+nTasks = 25
+dims = 7
 #nTasks = dims*2-1
 energy = 100
 network_creator = topologies.ManHattan
@@ -31,7 +33,7 @@ if network_creator == topologies.Line:
     dims = nNodes
 nNodes = nNodes + mobileNodes
 energy_list = [energy]*nNodes
-network_status = [1]*nNodes
+network_status = [[1,0]]*nNodes
 settings = {'nNodes' : nNodes,
          'mobileNodeCount' : mobileNodes,
          'network_creator' : network_creator,
@@ -45,14 +47,14 @@ settings = {'nNodes' : nNodes,
          'posList' : [],
          'init_energy' : energy,
          'verbose' : False,
-         'capture_packets' : True,
+         'capture_packets' : False,
          'pcap_filename' : f"pcap_minimal_network_{nTasks}task",
          'enable_errors' : False,
          'seed' : 5,
-         'error_shape' : 1.0,
-         'error_scale' : 1.0,
+         'error_shape' : 10000.0,
+         'error_scale' : 1000000.0,
+         'broadcast_status': [ns.core.Time(ns.core.Seconds(0))]*nNodes,
          'network_status' : network_status,
-         'routing' : True,
          'static' : True,
          'predictor' : 'perfect'
          }
@@ -79,7 +81,7 @@ for i in range(dims):
     allocation.append(dims-1+i*dims)
 
 allocation = random_assignment(networkGraph, task_graph)
-#print(allocation)
+print(allocation)
 #allocation=[6,6,12,18,24]
 #allocation=[20,14,18,13,13]
 #print("alloc:")
@@ -100,6 +102,8 @@ def updateGraph(nGraph, net):
 
 #net.controlTask.UpdateGraph()
 node_status = []
+node_pos = []
+node_broadcast = []
 latency_list = []
 received_list = []
 seqNumTx=[]
@@ -121,6 +125,7 @@ predictions=[]
 #for i, alloc in enumerate(allocation):
 #    alloc3.append((i+1,[alloc]))
 
+state_list = []
 def getTime(time = []):
     time.append(ns.core.Simulator.Now().GetSeconds())    
 ns.core.RngSeedManager.SetRun(1)
@@ -130,25 +135,29 @@ ns.core.RngSeedManager.SetRun(1)
 #ns.core.Simulator.Schedule(ns.core.Seconds(0), net.controlTask.Reallocate, alloc2, net.taskApps)
 #ns.core.Simulator.Schedule(ns.core.Seconds(0), net.controlTask.Reallocate, alloc3, net.taskApps)
 #ns.core.Simulator.Schedule(ns.core.Seconds(5), net.getPredictions, predictions, 10)
+#ns.core.Simulator.Schedule(ns.core.Seconds(5), net.saveState, state_list)
 ns.core.Simulator.ScheduleDestroy(net.getLatency, latency_list)
 ns.core.Simulator.ScheduleDestroy(net.getPackagesSent, sent_list, send_list, seqNumTx)
 ns.core.Simulator.ScheduleDestroy(net.getPackagesReceived, received_list, act_list, seqNumRx)
 ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
 ns.core.Simulator.ScheduleDestroy(getTime, time)
 ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
+ns.core.Simulator.ScheduleDestroy(net.getNodePositions, node_pos)
+ns.core.Simulator.ScheduleDestroy(net.getNodeLastBroadcast, node_broadcast)
 #ns.core.Simulator.Schedule(ns.core.Time(1), net.sendAllocationMessages)    
-ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(58)))
+#ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(6)))
 t1 = timer.time()
 ns.core.Simulator.Run()
 ns.core.Simulator.Destroy()
-
-print(node_status[0])
+print(state_list)
+print(node_status)
 print()
 print()
 print(f"time elapsed: {timer.time()-t1} for {time} sim seconds")
 print()
 print()
 print(latency_list)
+print(energy_list)
 latency = max(latency_list) if len(latency_list) > 0 else 0
 print(sent_list)
 print(received_list)
@@ -200,4 +209,6 @@ net = 0
 nodetasks = 0
 #print(time)
 print(predictions)
+print(node_status)
+print(node_broadcast)
 print(f"total time elapsed: {timer.time() -start}")

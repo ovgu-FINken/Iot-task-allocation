@@ -147,7 +147,7 @@ def getNewAllocation(pop, archive, node_status, **settings):
       if checkIfAllocValid(alloc, node_status):
          valid_allocs.append(alloc)
    if len(valid_allocs) > 0:
-      if settings['algorithm'] == 'nsga2' or settings['algorithm'] == 'rmota' or settings['algorithm'] == 'mmota':
+      if settings['algorithm'] == 'nsga2' or settings['algorithm'] == 'amota' or settings['algorithm'] == 'mmota':
          pfront = sortEpsilonNondominated(valid_allocs, len(pop))[0]
          best = tools.selBest(pfront,1)
       else:
@@ -425,9 +425,9 @@ def selArchive(pop, archive, archivestats, max_size = 100):
    return new_archive[:max_size], archivestats
 
 def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20,**kwargs):
-   if kwargs['algorithm'] == 'nsga2' or kwargs ['algorithm'] =='rmota' or kwargs['algorithm'] == 'mmota':
+   if algorithm == 'nsga2' or kwargs ['algorithm'] =='amota' or algorithm == 'mmota' or algorithm=='dmota':
       creator.create("FitnessMin", base.Fitness, weights=(-1.0, -1.0, -1.0,))
-   elif kwargs['algorithm'] == 'dtas':
+   elif algorithm == 'dtas':
       creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
    else:
       print("unrecognized algorithm")
@@ -436,8 +436,7 @@ def setup_ea(networkGraph = None, taskGraph = None, energy = None, eta = 20,**kw
    creator.create("Individual", ListWithAttributes, fitness=creator.FitnessMin)
    
 poolSize = 52
-popSize = 100
-def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, archive=[], archivestats = {}, popSize = popSize, multiprocessed = False, **kwargs):
+def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, archive=[], archivestats = {}, popSize = 100, multiprocessed = False, **kwargs):
    toolbox = base.Toolbox()
    toolbox.register("assignment", random_assignment, networkGraph = networkGraph, taskGraph = taskGraph, node_status = kwargs['network_status'])
    toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.assignment)
@@ -452,18 +451,16 @@ def setup_run(networkGraph = None, taskGraph = None, energy = None, eta = 20, ar
    #toolbox.register("evaluate", evaluate)
    BOUND_LOW, BOUND_UP = 0.0, len(networkGraph.nodes())
    NDIM = 2
-   if kwargs['crossover'] == 'nsga2':
-      crossover = mycxSimulatedBinaryBounded
-      toolbox.register("mate", crossover, low=BOUND_LOW, up=BOUND_UP, eta=eta)
-   elif kwargs['crossover'] == 'twopoint':
-      crossover = tools.cxTwoPoint
-      toolbox.register("mate", crossover)
-   if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota' or kwargs['algorithm'] =='mmota':
+   crossover = mycxSimulatedBinaryBounded
+   algorithm = kwargs['algorithm']
+   valid_algs = ['nsga2', 'amota', 'mmota', 'dmota']
+   toolbox.register("mate", crossover, low=BOUND_LOW, up=BOUND_UP, eta=eta)
+   if algorithm in valid_algs:
       toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=1.0/NDIM)
       toolbox.register("select", tools.selNSGA2)
-      if kwargs['algorithm'] == 'rmota':
+      if algorithm == 'amota' or algorithm == 'dmota':
          toolbox.register("selArchive", selArchive)
-   elif kwargs['algorithm'] == 'dtas':
+   elif algorithm == 'dtas':
       toolbox.register("mate", tools.cxOnePoint)
       toolbox.register("mutate", mutRandomNode, networkGraph = networkGraph, taskGraph= taskGraph, indpb=0.01)
       toolbox.register("select", tools.selRoulette)
@@ -503,9 +500,9 @@ def evaluate_wrapper(args):
   # else: 
       #print("---------------------------------------------------------")
       #print(f" SETTINGS: {settings}")
-   lifetime, latency, nMissed, missed_perc, missed_packages, percentage, energy_list = evaluate(allocation, stopTime = 100, **settings)
+   lifetime, latency, percentage_missed, missed_packages, energy_list, node_status, node_broadcast = evaluate(allocation, stopTime = 60, **settings)
    #print(lifetime, latency, nMissed, missed_perc, missed_packages, percentage)
-   return lifetime, latency, nMissed, energy_list
+   return lifetime, latency, percentage_missed, missed_packages, energy_list, node_status, node_broadcast
 
 
 def evaluate_surrogate(args):
@@ -572,9 +569,11 @@ def assign_fitnesses(pop,fitnesses,algorithm, eval_mode):
   for ind, fit in zip(pop, fitnesses):
     if algorithm == 'nsga2':
       ind.fitness.values = fit[:3]
-    elif algorithm == 'rmota':
+    elif algorithm == 'amota':
       ind.fitness.values = fit[:3]
     elif algorithm == 'mmota':
+      ind.fitness.values = fit[:3]
+    elif algorithm == 'dmota':
       ind.fitness.values = fit[:3]
     elif algorithm == 'dtas':
       ind.fitness.values = fit[0],
@@ -588,7 +587,7 @@ def assign_fitnesses(pop,fitnesses,algorithm, eval_mode):
   return pop
 
 def select_parents(pop, toolbox, n_selected, algorithm):
-    if algorithm == 'nsga2' or algorithm == 'rmota' or algorithm == 'mmota':
+    if algorithm == 'nsga2' or algorithm == 'amota' or algorithm == 'mmota' or algorithm =='dmota':
         offspring = tools.selTournamentDCD(pop, len(pop))
     elif algorithm =='dtas':
         offspring = toolbox.select(pop, n_selected)
@@ -598,7 +597,7 @@ def select_parents(pop, toolbox, n_selected, algorithm):
 
 def generate_offspring(offspring, toolbox, CXPB, algorithm):
     for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
-        if algorithm =='nsga2' or algorithm =='rmota' or algorithm == 'mmota':
+        if algorithm =='nsga2' or algorithm =='amota' or algorithm == 'mmota' or algorithm == 'dmota':
             if random.random() <= CXPB:
                 toolbox.mate(ind1, ind2)
         elif algorithm=='dtas':
@@ -625,8 +624,8 @@ def main(archive = [], archivestats={}, **kwargs):
     MU = 100 #100
     CXPB = 0.9
     eta = 20
-    n_selected = MU if (kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'rmota' or kwargs['algorithm'] =='mmota') else int((MU*0.8)/2)
     algorithm = kwargs['algorithm']
+    n_selected = MU if (algorithm == 'nsga2' or algorithm == 'amota' or algorithm =='mmota') else int((MU*0.8)/2)
     if algorithm == 'mmota':
        prediction = kwargs['prediction_data']
     eval_mode = kwargs['eval_mode']
@@ -643,15 +642,11 @@ def main(archive = [], archivestats={}, **kwargs):
     taskGraph = task_creator(networkGraph, **kwargs)   
     
     aliveGraph = network_creator(**kwargs)
-    print("ENERGY")
-    print(kwargs['init_energy'])
-    print(energy_list)
     remove_dead_nodes(aliveGraph, energy_list, **kwargs)
     posL = [[float(node.posx), float(node.posy)] for node in networkGraph.nodes()]
     #settings = kwargs['settings']
     #settings.update({'posList' : posL})
     kwargs.update({'posList' : posL})
-    #print(kwargs)
     try:
        pop, toolbox= setup_run(aliveGraph, taskGraph, eta, archive= archive, archivestats=archivestats, **kwargs)
     except exceptions.NoValidNodeException:
@@ -686,9 +681,9 @@ def main(archive = [], archivestats={}, **kwargs):
     #crowding distance assignment
     if algorithm == 'nsga2' or algorithm == 'mmota':
        pop = toolbox.select(pop, len(pop))
-    elif algorithm == 'rmota':
+    elif algorithm == 'amota':
        pop = toolbox.select(pop, len(pop))
-       archive, archivestats = toolbox.selArchive(pop, archive, archivestats, popSize)
+       archive, archivestats = toolbox.selArchive(pop, archive, archivestats, kwargs['popSize'])
 
     record = stats.compile(pop)
     logbook.record(gen=0, evals=len(pop), **record)
@@ -720,13 +715,13 @@ def main(archive = [], archivestats={}, **kwargs):
         assign_fitnesses(invalid_ind, fitnesses, algorithm, eval_mode) 
         # Select the next generation population
         pop = toolbox.select(pop + offspring, len(pop))
-        if algorithm == 'rmota':
+        if algorithm == 'amota':
            archive, archivestats = toolbox.selArchive(pop, archive, archivestats, popSize)
         record = stats.compile(pop)
         logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
     
-    if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] =='rmota' or kwargs['algorithm'] == 'mmota':
+    if algorithm == 'nsga2' or algorithm =='amota' or algorithm == 'mmota':
       #pfront = sortEpsilonNondominated(pop, len(pop))[0]
       if algorithm =='mmota' and len(kwargs['prediction_data']) > 0:
         confidence = min([x[2] for x in kwargs['prediction_data']])
@@ -758,7 +753,7 @@ def main(archive = [], archivestats={}, **kwargs):
         best = tools.selBest(pfront,1)
     else:
       best = tools.selBest(pop,1)
-    if kwargs['algorithm'] == 'nsga2' or kwargs['algorithm'] == 'dtas' or kwargs['algorithm'] == 'mmota':
+    if algorithm == 'nsga2' or algorithm == 'dtas' or algorithm == 'mmota':
       archive = pop#tools.sortNondominated(pop, len(pop), True)[0]
       
     return pop, logbook, best, archive, archivestats
@@ -769,7 +764,7 @@ def save(index, db, bests, fronts, settings):
     import pandas as pd 
     import json
     import pickle
-    old_results = pd.read_sql("results_surrogates", con=db)
+    old_results = pd.read_sql(f"results_{settings['experiment']}", con=db)
     #min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
     results = {'index' : index,
                'bests' : pickle.dumps(bests),
@@ -788,20 +783,21 @@ def save(index, db, bests, fronts, settings):
     df.to_sql('results_surrogates', db, if_exists='append')
     df.to_sql('results_surrogates', db, if_exists='append')
     from pathlib import Path
-    Path(f"{settings['datapath']}").mkdir(parents=True, exist_ok=True)
+    try:
+      Path(f"{settings['datapath']}").mkdir(parents=True, exist_ok=True)
 
-    with open(f"{settings['datapath'][:-5]}_bests{index}.pck","wb+") as f:
-      pickle.dump(bests, f)
-    with open(f"{settings['datapath'][:-5]}_fronts{index}.pck","wb+") as f:
-      pickle.dump(fronts, f)
+      with open(f"{settings['datapath'][:-5]}_bests{index}.pck","wb+") as f:
+         pickle.dump(bests, f)
+      with open(f"{settings['datapath'][:-5]}_fronts{index}.pck","wb+") as f:
+         pickle.dump(fronts, f)
+    except KeyError as e:
+       print("No datapath set, saving to db only")
     print(bests)  
     for x in bests:
       print(x.lifetime)
       print(x.latency)
-      print(x.nMissed)
       print(x.missed_perc)
-      print(x.missed_packages)
-      print(x.percentage)
+      print(x.nmissed)
       print()
 
 
@@ -816,7 +812,7 @@ def run_algorithm(index, db, **settings):
     recursive = True
     fronts = []
     setup_ea(**settings)
-    settings.update({'NGEN' : 100})
+    settings.update({'NGEN' : 20})
     algorithm = settings['algorithm']
     print(settings)
     node_data = []
@@ -832,22 +828,26 @@ def run_algorithm(index, db, **settings):
        settings.update({'network_status' : node_data[0]})
        settings.update({'posList' : node_data[0]})
        settings.update({'prediction_data' : []})
-    enl = settings['energy_list']
+    
+    if algorithm=='amota':
+      #disable errors for alg run
+      settings.update({'enable_errors' : False})
 
+    nl = settings['energy_list']
     settings.update({'energy_list_sim' : enl})
     pop, stats, best, archive, archivestats = main(archive = [], archivestats = {}, **settings)
     best = best[0]
     front = tools.sortNondominated(pop, len(pop), True)[0]
     fronts.append(front)
     #new_lifetime, new_latency, new_received, new_energy_list, new_node_status, new_missed = evaluate(best, **settings)
-    nl, l, nmissed, missed_perc, missed_packages, percentage, new_energy_list = evaluate(best, stopTime = 20000, **settings)
+    if algorithm=='amota':
+      settings.update({'enable_errors' : True})
+    nl, l, percentage_missed, missed_packages, new_energy_list, new_status, last_broadcasts = evaluate(best, stopTime = 20000, **settings)
     best = copy.deepcopy(best)
     best.lifetime = nl
     best.latency = l
-    best.nmissed = nmissed
-    best.missed_perc = missed_perc
-    best.missed_packages= missed_packages
-    best.percentage = percentage
+    best.nmissed = missed_packages
+    best.missed_perc = percentage_missed
     print(best)
     bests.append(best)
     print(bests)
@@ -863,6 +863,7 @@ def run_algorithm(index, db, **settings):
          #print(f"planning reallocations: {nsteps-i} to go" )
         settings.update({'energy_list_sim' : new_energy_list})
         settings.update({'energy_list' : new_energy_list})
+        
         if algorithm == 'mmota':
          settings.update({'network_status' : node_data[i]})
          settings.update({'posList' : node_data[i]})
@@ -871,21 +872,25 @@ def run_algorithm(index, db, **settings):
          #print(prediction_data[i])
          NGEN = settings['NGEN_realloc'] if 'NGEN_realloc' in settings.keys() else 10
          #settings.update({'NGEN' : NGEN})
+        if algorithm == 'amota':
+          settings.update({'network_status' : new_status})
+          settings.update({'enable_errors' : False})
+          settings.update({'broadcast_status' : last_broadcasts})
         
         best = []
         pop, stats, best, archive, archivestats = main(archive = archive, archivestats=archivestats, **settings)
         best = best[0]
-        nl, l, nmissed, missed_perc, missed_packages, percentage, new_energy_list = evaluate(best, stopTime = 20000, **settings)
+        if algorithm=='amota':
+          settings.update({'enable_errors' : True})
+        nl, l, nmissed, percentage_missed, missed_packages, new_energy_list, new_status, last_broadcasts = evaluate(best, stopTime = 20000, **settings)
         print(new_energy_list)
         print(f"Current allocation performance: {nl}, {l}, {nmissed}, {missed_perc}, {missed_packages}, {percentage}")
         settings.update({'energy_list_sim' : new_energy_list})
         best = copy.deepcopy(best)
         best.lifetime = nl
         best.latency = l
-        best.nmissed = nmissed
-        best.missed_perc = missed_perc
-        best.missed_packages= missed_packages
-        best.percentage = percentage
+        best.nmissed = missed_packages
+        best.missed_perc = percentage_missed
         print(best)
         bests.append(best)
         print(bests)
@@ -912,25 +917,22 @@ if __name__ == "__main__":
   import sqlalchemy as sql
   import cred 
   import time
-  nNodes = 49
+  nNodes = 16
   mobileNodes = 0
-  dims = 7
+  dims = 4
   energy = 100
   network_creator = topologies.ManHattan
-  task_creator = topologies.EncodeDecode
-  task_creator = 'EncodeDecode'
+  task_creator = topologies.OneSink
+  task_creator = 'OneSink'
   network_creator = 'Manhattan'
-  eval_mode = 'surrogate'
-  surrogate = 'rand'
-  nTasks = 25
-  if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
-      nNodes = dims**2
-  if network_creator == topologies.Line:
-      dims = nNodes
+  eval_mode = 'sim'
+  surrogate = 'none'
+  nTasks = 5
+  print(nNodes)
   nNodes = nNodes + mobileNodes
   energy_list = [energy]*nNodes
   network_status = [1]*nNodes
-  algorithm = 'nsga2'
+  algorithm = 'dmota'
   for i in range(2):
     settings = {'nNodes' : nNodes,
                'mobileNodeCount' : mobileNodes,
@@ -952,18 +954,20 @@ if __name__ == "__main__":
                'enable_errors' : False,
                'seed' : 3141 + i*21,
                'error_shape' : 1.0,
-               'error_scale' : 1.0,
-               'routing' : True,
+               'error_dur_shape' : 1.0,
+               'error_scale' : 250,
+               'error_dur_scale' : 250,
+               'broadcast_status': [0]*nNodes,
+               'network_status' : [[1,0]]*nNodes,
                'static' : True,
                'run_number' : i,
                'predictor' : 'perfect',
                'eval_mode' : eval_mode,
-               'surrogate' : surrogate
-               
+               'surrogate' : surrogate,
+               'popSize' : 4
                }
   settings.update({'nTasks' : nTasks})
-  settings.update({'crossover' : 'nsga2'})
-  settings.update({'experiment' : 'mota'})
+  settings.update({'experiment' : 'test'})
   settings.update({'task_creator' : task_creator})
   settings.update({'algorithm' : algorithm})
   settings.update({'NGEN_realloc' : 2})
@@ -971,11 +975,36 @@ if __name__ == "__main__":
   #db = sql.create_engine(f'postgresql+psycopg2://{cred.user}:{cred.passwd}@{cred.vm}')
   setup_ea(**settings)
   t_l = []
-  for i in range(11):
+  for i in range(2):
     t_start = time.time()
     pop, stats, best, archive, archivestats = main(archive = [], archivestats = {}, **settings)
     t_end = time.time()
     t_l.append(t_end-t_start)
+  import cred
+  import pandas as pd
+  db = sql.create_engine(f'postgresql+psycopg2://{cred.user}:{cred.passwd}@{cred.vm}')
+  from network import evaluate
+  best = best[0]
+  print(best)
+  nl, l, percentage_missed, missed_packages, new_energy_list, new_status, last_broadcasts = evaluate(best, stopTime = 20000, **settings)
+  best.lifetime = nl
+  best.latency = l
+  best.nmissed = missed_packages
+  best.missed_perc = percentage_missed
+  bests=[]
+  fronts=[]
+  bests.append(best)
+  best = copy.deepcopy(best)
+  best.lifetime = nl
+  best.latency = l
+  best.nmissed = missed_packages
+  best.missed_perc = percentage_missed
+  bests.append(best)
+  front = tools.sortNondominated(pop, len(pop), True)[0]
+  fronts.append(front)
+  old_results = pd.read_sql("results_test", con=db)
+  min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
+  save(min_index, db, bests, fronts, settings)
   print(np.mean(t_l))
  
   #run_algorithm(50u0, db, **settings)
