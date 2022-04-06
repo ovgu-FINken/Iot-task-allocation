@@ -22,9 +22,9 @@ if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
     nNodes = dims**2
 if network_creator == topologies.Line:
     dims = nNodes
-for static in [True, False]:
+for static in [False]:
     print(f"creating static = {static} mobility data")
-    predl = ['perfect'] if not static else ['perfect']
+    predl = ['nn'] if not static else ['perfect']
     for predictor in predl:
         print(f"creating {predictor} predictor data")
         mobl = [20,40]
