@@ -353,7 +353,7 @@ class Network:
                 prediction = self.predictor.Predict(node, t)
                 m_node_list.append((prediction.x, predicion.y))
         for i in range(self.staticNodesContainer.GetN()):
-            node = self.staticNodesContainer.Get(i)
+            node = self.MobilityHelper.Get(i)
             pos = node.DoGetPosition()
             node_list.append((pos.x, pos.y))
         for pos in m_node_list:
