@@ -124,6 +124,7 @@ for static in [True, False]:
                         n = list(node_status)
                         p = list(pos_data)
                         b = list(broadcast_data)
+                        pred = list(prediction_data)
                         s2 = str(nNodes)
                         print(settings)
                         s4 = settings['error_rate']
@@ -158,6 +159,8 @@ for static in [True, False]:
                                 json.dump(p, f)
                             with open(f"{s}broadcast_{i}.json",'w+')as f:
                                 json.dump(b, f)
+                            with open(f"{s}predictions_{i}.json",'w+')as f:
+                                json.dump(pred, f)
                             with open(f"{s}/settings_{i}.json",'w+')as f:
                                 json.dump(settings, f)
                             with open(f"{s}/time_{i}.json",'w+')as f:
