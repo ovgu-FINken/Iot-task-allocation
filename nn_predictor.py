@@ -4,7 +4,7 @@ from tensorflow import keras
 
 class nnPredictor:
     def __init__(self):
-        self.model = keras.models.load_model('model')
+        self.model = keras.models.load_model('/home/dweikert/repos/Iot-task-allocation/ns3/model')
     def Predict(self, sequence):
         temp = []
         temp = np.zeros((20, 2))

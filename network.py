@@ -17,7 +17,7 @@ import ns.aodv
 import ns.dsdv
 import ns.energy
 import itertools
-
+from nn_predictor import nnPredictor
 from utils import checkIfAlive, remove_dead_nodes
 
 class Network:
@@ -146,6 +146,8 @@ class Network:
         elif pred == 'markov':
             print(dir(ns.mobility))
             predictor = ns.mobility.MarkovPredictor()
+        elif pred == 'nn':
+            predictor = nnPredictor()
         return nodeContainer, staticNodesCon, mobileNodesCon, predictor
 
 
@@ -346,7 +348,7 @@ class Network:
         m_node_list = []
         for i in range(self.mobileNodesContainer.GetN()):
             node = self.mobileNodesContainer.Get(i)
-            if isinstance(self.predictor, nnPredictor.nnPredictor):
+            if isinstance(self.predictor, nnPredictor):
                 prediction = self.predictor.Predict(self.position_sequences[i])
                 m_node_list.append(prediction)
             else:
