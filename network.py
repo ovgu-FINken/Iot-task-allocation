@@ -338,8 +338,9 @@ class Network:
                     break
             if (ctrlTask is not None):
                  break
-        node_status.append([list(x) for x in list(ctrlTask.GetCurrentPositions())])
-        for i, mobile_node in enumerate(node_status[self.staticNodeCount:]):
+        new_pos = [list(x) for x in list(ctrlTask.GetCurrentPositions())]
+        node_status.append(new_pos)
+        for i, mobile_node in enumerate(new_pos[self.staticNodeCount:]):
             if self.mobileNodeCount > 0:
                 self.position_sequences[i].append(mobile_node)
         
@@ -350,17 +351,19 @@ class Network:
             node = self.mobileNodesContainer.Get(i)
             if isinstance(self.predictor, nnPredictor):
                 prediction = self.predictor.Predict(self.position_sequences[i])
-                m_node_list.append(prediction)
+                m_node_list.append((float(prediction[0]), float(prediction[1])))
             else:
                 prediction = self.predictor.Predict(node, t)
-                m_node_list.append((prediction.x, predicion.y))
+                m_node_list.append((float(prediction.x), float(predicion.y)))
+        temp_list = []
         for i in range(self.staticNodesContainer.GetN()):
-            node = self.MobilityHelper.Get(i)
-            pos = node.DoGetPosition()
-            node_list.append((pos.x, pos.y))
+            node = self.staticNodesContainer.Get(i)
+            mob = node.GetObject(ns.mobility.MobilityModel.GetTypeId())
+            pos = mob.GetPosition()
+            temp_list.append((float(pos.x), float(pos.y)))
         for pos in m_node_list:
-            node_list.append((pos.x,pos.y))
-
+            temp_list.append((float(pos[0]),float(pos[1])))
+        node_list.append(temp_list)
 
     #def getPredictions(self, predictions = [], time= 30):
     #    predtemp = []
