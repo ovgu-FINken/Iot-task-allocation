@@ -14,8 +14,6 @@ results/
 .vscode/
 cred.py
 
-datasets/*
-datasets_amota/*
 trainingdata/
 processed/
 slurmvenv/*
