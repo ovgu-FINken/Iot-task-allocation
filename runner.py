@@ -86,15 +86,59 @@ def create_experiments_amota(settings):
     return run, settings
 
 
+def create_experiments_from_files():
+    import glob
+    nTasks = 25
+    algorithm = 'dmota'
+    settings_paths = glob.glob("/home/repos/Iot-task-allocation/datasets/**/*settings*", recursive=True)
+    for spath in settings_paths:
+        with open(spath, 'rb') as sfile:
+            settings = json.load(sfile)
+            statuspath = spath.replace("settings", "status")
+            pospath = spath.replace("settings", "positions")
+            predpath = spath.replace("settings", "predictions")
+            broadcastpath = spath.replace("settings", "broadcast")
+            with open(statuspath) as f:
+                status = json.load(f)
+                settings.update({'network_status_all' : status})
+            with open(pospath) as f:
+                status = json.load(f)
+                settings.update({'posList_all' : status})
+            with open(predpath) as f:
+                status = json.load(f)
+                settings.update({'prediction_data_all' : status})
+            with open(broadcastpath) as f:
+                status = json.load(f)
+                settings.update({'broadcast_status_all' : status})
+            for algorithm in ['dmota', 'amota', 'mmota']:
+                settings.update({'algorithm' : algorithm})
+                settings.update({'nTasks' : 25})
+                settings.update({'experiment' : 'dmota'})
+                settings.update({'popSize' : 100})
+                old_results = pd.read_sql("experiments", con=db)
+                min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
+                run = {'index' : min_index,
+                    'experiment' : 'dmota',
+                    'algorithm' : settings['algorithm'],
+                    'eval_mode': settings['eval_mode'],
+                    'status' : JobStatus.TODO,
+                    'settings' : json.dumps(settings),
+                    }
+                df = pd.DataFrame(run, index=[0])
+                df.set_index('index', inplace=True)
+                df.to_sql('experiments', db, if_exists='append')
+    
+
+
 def create_experiments():
     task_numbers = [10]
     diml = [5]
-    algorithms = ['amota']
+    algorithms = ['amota', 'mmota', 'dmota']
     eval_modes = ['sim']#, 'surrogate']
     network_creator = 'Manhattan'
     #task_creator = 'EncodeDecode'
     task_creator = 'OneSink'
-    mobl = [0]
+    mobl = [0,20,40]
     errors_enabled = True
     error_settings = [[250,250], [250,60],[1000,250],[1000,60]] if errors_enabled else [[1,1]]
     for err_params in error_settings:
@@ -225,6 +269,8 @@ if __name__ == "__main__":
         print(f"Starting experiment {jobid}")
         if args.mode == 'create':
             create_experiments()
+        if args.mode == 'data':
+            create_experiments_from_files()
         if args.mode == 'run':
             from nsga2 import run_algorithm
             print(f"running experiment {jobid}")
