@@ -17,7 +17,6 @@ import ns.aodv
 import ns.dsdv
 import ns.energy
 import itertools
-from nn_predictor import nnPredictor
 from utils import checkIfAlive, remove_dead_nodes
 
 class Network:
@@ -345,6 +344,7 @@ class Network:
         
 
     def getPredictedPositions(self, node_list, t):
+        from nn_predictor import nnPredictor
         m_node_list = []
         for i in range(self.mobileNodesContainer.GetN()):
             node = self.mobileNodesContainer.Get(i)
@@ -810,7 +810,7 @@ def evaluate(allocation = [], stopTime = 60, **kwargs):
     #the energy this exp started with
     start_energy = kwargs['energy_list']
     #the energy actually left on the nodes
-    energy_sim = energy_list
+    energy_sim = energy_list[0][0]
     delta_energy = []
     lifetimes = []
     #print(energy_sim)
