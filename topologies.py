@@ -327,10 +327,10 @@ def OneSink(networkGraph = None, deltax = 100, deltay = 100, verbose = False, si
         boundTop = np.array([[-50, 50], [50, 250]])
         boundBottom = np.array([[-50, 50], [-250, -50]])
     else:
-        midTask = int(kwargs['nTasks']/2) #actually right task of the two middling tasks
-        #includes the left neighbor as a possible sink task
-        posCenterx = np.array([list(networkGraph.nodes())[midTask].pos[0]-101, list(networkGraph.nodes())[midTask].pos[0]+1])
-        boundCenter = np.array([posCenterx, np.array([-np.inf, np.inf])])
+        ndim = kwargs['dimx']
+        posCenterx = np.array([int(ndim/2)*100-51, (int(ndim/2)+1)*100+51])
+        posCentery = np.array([int(ndim/2)*100-51, (int(ndim/2)+1)*100+51])
+        boundCenter = np.array([posCenterx, posCentery])
     center_constraint = {'location' : boundCenter}
     if verbose:
         print(f"Boundary for center: {boundCenter}")

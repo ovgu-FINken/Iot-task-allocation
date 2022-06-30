@@ -16,15 +16,15 @@ import itertools
 import time as timer
 
 start = timer.time()
-nNodes = 49
+nNodes = 4
 mobileNodes = 0
-nTasks = 25
-dims = 7
+nTasks = 3
+dims = 2
 #nTasks = dims*2-1
 energy = 100
 network_creator = topologies.ManHattan
 #task_creator = topologies.TwoTask
-task_creator = topologies.EncodeDecode
+task_creator = topologies.OneSink
 #task_creator = None
 #nTasks = 0
 if network_creator == topologies.Grid or network_creator==topologies.ManHattan:
@@ -136,79 +136,79 @@ ns.core.RngSeedManager.SetRun(1)
 #ns.core.Simulator.Schedule(ns.core.Seconds(0), net.controlTask.Reallocate, alloc3, net.taskApps)
 #ns.core.Simulator.Schedule(ns.core.Seconds(5), net.getPredictions, predictions, 10)
 #ns.core.Simulator.Schedule(ns.core.Seconds(5), net.saveState, state_list)
-ns.core.Simulator.ScheduleDestroy(net.getLatency, latency_list)
-ns.core.Simulator.ScheduleDestroy(net.getPackagesSent, sent_list, send_list, seqNumTx)
-ns.core.Simulator.ScheduleDestroy(net.getPackagesReceived, received_list, act_list, seqNumRx)
-ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
-ns.core.Simulator.ScheduleDestroy(getTime, time)
-ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
-ns.core.Simulator.ScheduleDestroy(net.getNodePositions, node_pos)
-ns.core.Simulator.ScheduleDestroy(net.getNodeLastBroadcast, node_broadcast)
+#ns.core.Simulator.ScheduleDestroy(net.getLatency, latency_list)
+#ns.core.Simulator.ScheduleDestroy(net.getPackagesSent, sent_list, send_list, seqNumTx)
+#ns.core.Simulator.ScheduleDestroy(net.getPackagesReceived, received_list, act_list, seqNumRx)
+#ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
+#ns.core.Simulator.ScheduleDestroy(getTime, time)
+#ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
+#ns.core.Simulator.ScheduleDestroy(net.getNodePositions, node_pos)
+#ns.core.Simulator.ScheduleDestroy(net.getNodeLastBroadcast, node_broadcast)
 #ns.core.Simulator.Schedule(ns.core.Time(1), net.sendAllocationMessages)    
 #ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(6)))
 t1 = timer.time()
 ns.core.Simulator.Run()
 ns.core.Simulator.Destroy()
-print(state_list)
-print(node_status)
-print()
-print()
-print(f"time elapsed: {timer.time()-t1} for {time} sim seconds")
-print()
-print()
-print(latency_list)
-print(energy_list)
-latency = max(latency_list) if len(latency_list) > 0 else 0
-print(sent_list)
-print(received_list)
-print(f"actually sent: {sent_list}")
-print(f"received: {received_list}")
-print(f"every sendtask sent: {send_list}")
-print(f"act received: {act_list}")
-missed_packages = sent_list[0] - received_list[0]
-percentage = missed_packages/sent_list[0] if sent_list[0] > 0 else 1
-print(f"missed packages:{missed_packages}, {percentage}% of {sent_list[0]}") 
-#print(f"Seqnums: {list(seqNumTx)}")
-#for x in seqNumTx:
-#    print(list(x))
-#print(f"Seqnums: {list(seqNumRx)}")
-#for x in seqNumRx:
-#    print(list(x))
-
-nMissed = 0
-
-
-
-
-for tx in itertools.zip_longest(*seqNumTx,fillvalue=-1):
-    found = [False for x in tx]
-    for i,a in enumerate(tx):
-        for r in seqNumRx:
-            if a in r or a == -1:
-                found[i] = True
-                continue
-    if not all(found):
-        nMissed +=1
-
-print("missed ids:")
-print(nMissed)
-print("out of:")
-txall = max([len(list(x)) for x in seqNumTx])
-print(txall)
-
-
-print(f"% missed: {1.0 - nMissed/txall}")
-print(f"time running: {time}")
-print(f"Node state: {node_status}")
-print(f"Latency: {latency}")
-#latency += latency*percentage
-#time = np.mean(time)
-#time -= time*percentage
-net.controlTask = 0
-net = 0
-nodetasks = 0
-#print(time)
-print(predictions)
-print(node_status)
-print(node_broadcast)
-print(f"total time elapsed: {timer.time() -start}")
+#print(state_list)
+#print(node_status)
+#print()
+#print()
+#print(f"time elapsed: {timer.time()-t1} for {time} sim seconds")
+#print()
+#print()
+#print(latency_list)
+#print(energy_list)
+#latency = max(latency_list) if len(latency_list) > 0 else 0
+#print(sent_list)
+#print(received_list)
+#print(f"actually sent: {sent_list}")
+#print(f"received: {received_list}")
+#print(f"every sendtask sent: {send_list}")
+#print(f"act received: {act_list}")
+#missed_packages = sent_list[0] - received_list[0]
+#percentage = missed_packages/sent_list[0] if sent_list[0] > 0 else 1
+#print(f"missed packages:{missed_packages}, {percentage}% of {sent_list[0]}") 
+##print(f"Seqnums: {list(seqNumTx)}")
+##for x in seqNumTx:
+##    print(list(x))
+##print(f"Seqnums: {list(seqNumRx)}")
+##for x in seqNumRx:
+##    print(list(x))
+#
+#nMissed = 0
+#
+#
+#
+#
+#for tx in itertools.zip_longest(*seqNumTx,fillvalue=-1):
+#    found = [False for x in tx]
+#    for i,a in enumerate(tx):
+#        for r in seqNumRx:
+#            if a in r or a == -1:
+#                found[i] = True
+#                continue
+#    if not all(found):
+#        nMissed +=1
+#
+#print("missed ids:")
+#print(nMissed)
+#print("out of:")
+#txall = max([len(list(x)) for x in seqNumTx])
+#print(txall)
+#
+#
+#print(f"% missed: {1.0 - nMissed/txall}")
+#print(f"time running: {time}")
+#print(f"Node state: {node_status}")
+#print(f"Latency: {latency}")
+##latency += latency*percentage
+##time = np.mean(time)
+##time -= time*percentage
+#net.controlTask = 0
+#net = 0
+#nodetasks = 0
+##print(time)
+#print(predictions)
+#print(node_status)
+#print(node_broadcast)
+#print(f"total time elapsed: {timer.time() -start}")

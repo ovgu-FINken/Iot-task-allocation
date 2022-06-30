@@ -71,9 +71,17 @@ def sortEpsilonNondominated(individuals, k, first_front_only=False):
     return fronts
 
 def grab_data(db):
-    df2 = pd.read_sql('results_surrogates_final', db)
+    df2 = pd.read_sql('results_dmota', db)
     df3 = pd.read_sql('experiments', db)
     return df2, df3
+
+def grab_run(db, index):
+    runs = pd.read_sql("results_dmota", con=db)
+    runs = runs.sort_values(by='index')
+    #print(runs)
+    run= runs.iloc[[index]]
+    print(f"fetched run {index}")
+    return run
 
 
 def get_critical_node_indexes(nDims = 9):
@@ -82,14 +90,16 @@ def get_critical_node_indexes(nDims = 9):
         indexes.append(int(nDims/2)+nDims*i)
     return indexes
 
-def save_to_db(db, lifetime, latency, missed_sequence, algorithm, nnodes, ntasks, predictor, static, index ):
+def save_to_db(db, lifetime, latency, precentage_missed, nmissed, algorithm, nnodes, ntasks, predictor, static, index, settings ):
     import numpy as np
     
     results = {'index' : index,
                 'lifetime' : lifetime,
                 'latency' : latency,
-                'nMissed' : missed_sequence,
+                'percentage_missed' : percentage_missed,
+                'nMissed' : nMissed,
                'algorithm' : algorithm,
+               'settings' : json.dumps(settings),
                'nnodes' : nnodes,
                'ntasks' : ntasks,
                'static' : static,
@@ -98,7 +108,7 @@ def save_to_db(db, lifetime, latency, missed_sequence, algorithm, nnodes, ntasks
     #np.random.seed(4356)
     df = pd.DataFrame(results, index=[index])
     df.set_index('index', inplace=True)
-    df.to_sql('results_final_mobility', db, if_exists='append')
+    df.to_sql('results_final_dmota', db, if_exists='append')
 
     #print(lifetime)
     #print(latency)
@@ -107,37 +117,27 @@ def save_to_db(db, lifetime, latency, missed_sequence, algorithm, nnodes, ntasks
 
 
 
-def sim_run(allocation_series = [], stopTime = 600, **kwargs):
+def sim_run(bests, archives, elitesets, **kwargs):
+    import network
     import ns.core
-    import ns.network
-    import ns.point_to_point
-    import ns.applications
-    import ns.wifi
-    import ns.lr_wpan
-    import ns.mobility
-    import ns.csma
-    import ns.internet 
-    import ns.sixlowpan
-    import ns.internet_apps
-    import ns.energy
     time = 0
-    latency = 99999
+    latency = 0
     nNodes = kwargs['nNodes']
-    nTasks = kwargs['nTasks']
+    alg = kwargs['algorithm']
     network_creator = topologies.network_topologies[kwargs['network_creator']]
+    nTasks = kwargs['nTasks']
     task_creator = topologies.task_topologies[kwargs['task_creator']]
-    energy_list = [100]*nNodes
+    energy_list = kwargs['energy_list_sim']
     networkGraph = network_creator(**kwargs)
-    posL = [[float(node.posx), float(node.posy)] for node in networkGraph.nodes()]
-    kwargs['posList'] = posL
     taskGraph = task_creator(networkGraph, **kwargs)   
+    posL = [[float(node.posx), float(node.posy)] for node in networkGraph.nodes()]
+    kwargs.update({'posList' : posL})
     try:
         net = network.Network(networkGraph, **kwargs)
     except Exception as e:
         print(f"Error during network creation: {e}")
         raise e
-    network.createTasksFromGraph(net, taskGraph, allocation_series[0][0], **kwargs)
-    node_status = []
+    network.createTasksFromGraph(net, taskGraph, bests[0], **kwargs)
     latency_list = []
     received_list = []
     actrcvd = []
@@ -146,6 +146,8 @@ def sim_run(allocation_series = [], stopTime = 600, **kwargs):
     send_list = []
     energy_list = []
     node_status = []
+    node_pos = []
+    node_broadcast = []
     act_list = []
     seqNumTx=[]
     seqNumRx=[]
@@ -153,62 +155,68 @@ def sim_run(allocation_series = [], stopTime = 600, **kwargs):
     def getTime(time = []):
         time.append(ns.core.Simulator.Now().GetSeconds())    
     ns.core.RngSeedManager.SetRun(kwargs['run_number'])
-    for a in allocation_series[1:]:
-        a_fixed = [(0,[0])]
-        for i, alloc in enumerate(a[0]):
-            a_fixed.append((i+1,[alloc]))
-        #print(f"scheduling realloc to {a_fixed} at time {a[1]}")
-        ns.core.Simulator.Schedule(ns.core.Seconds(a[1]), net.controlTask.Reallocate, a_fixed, net.taskApps)
+    a_fixed=[]
+    dt = 30
+    for a in bests[1:]:
+        for i, alloc in enumerate(a):
+            a_fixed.append((i,[alloc]))
+        ns.core.Simulator.Schedule(ns.core.Seconds(dt), net.controlTask.Reallocate, a_fixed)
+        dt += 30
+    if elitesets[0] == elitesets:
+        elitesets = elitesets[1:]
+    print(len(archives))
+    print(len(bests))
+    print(len(elitesets))
+    main_archive = []
+    for a in archives:
+        new_archive = []
+        for ai in a:
+            a_fixed = [] 
+            for i, alloc in enumerate(ai):
+                a_fixed.append((i,[alloc]))
+            new_archive.append(a_fixed)
+        main_archive.append(new_archive)
+    
+    main_eliteset = []
+    for e in elitesets:
+        new_eliteset = []
+        for ei in e:
+            e_fixed = [] 
+            for i, alloc in enumerate(ei):
+                e_fixed.append((i,[alloc]))
+            new_eliteset.append(e_fixed)
+        main_eliteset.append(new_eliteset)
+    
+    dt = 0
+    if len(main_eliteset) > 0:
+        for a,e in zip (main_archive, main_eliteset):
+            ea = e+a
+            ns.core.Simulator.Schedule(ns.core.Seconds(dt), net.controlTask.SetArchive, ea)
+            dt += 30
+    else:
+        for a in main_archive:
+            ns.core.Simulator.Schedule(ns.core.Seconds(dt), net.controlTask.SetArchive, a)
+
     ns.core.Simulator.ScheduleDestroy(net.getPackagesSent, sent_list, send_list, seqNumTx)
     ns.core.Simulator.ScheduleDestroy(net.getPackagesReceived, received_list, act_list, seqNumRx)
     ns.core.Simulator.ScheduleDestroy(net.getEnergy, energy_list)
     ns.core.Simulator.ScheduleDestroy(getTime, time)
     ns.core.Simulator.ScheduleDestroy(net.getNodeStatus, node_status)
     ns.core.Simulator.ScheduleDestroy(net.getLatency, latency_list)
-    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(150)))
+    ns.core.Simulator.Stop(ns.core.Time(ns.core.Seconds(1200)))
     print("running sim")
     ns.core.Simulator.Run()
     ns.core.Simulator.Destroy()
     print("sim finished")
-    latency = max(latency_list) if len(latency_list) > 0 else latency
     
-    nMissed = 0
-    missed_sequence = []
-    for tx in itertools.zip_longest(*seqNumTx,fillvalue=-1):
-        found = [False for x in tx]
-        for i,a in enumerate(tx):
-            for r in seqNumRx:
-                if a in r or a == -1:
-                    found[i] = True
-                    continue
-        if not all(found):
-            nMissed +=1
-            missed_sequence.append(1)
-        else:
-            missed_sequence.append(0)
-    
-    start_energy = kwargs['energy_list']
-    #the energy actually left on the nodes
-    energy_sim = energy_list
-    delta_energy = []
-    lifetimes = []
-    
+    lifetime = time[0]
+    latency = max(latency_list) if len(latency_list) > 0 else 98999
 
-    for old_en, new_en, in zip(start_energy, energy_sim):
-        #how much energy was spent?
-        deltaE = (old_en-new_en)/time[0]
-        delta_energy.append(deltaE)
-        if deltaE > 0:
-            # how long will the energy last on the actual network?
-            lifetimes.append(old_en/deltaE)
-    critnodes = get_critical_node_indexes()
-    crit_lifetimes = []
-    for i in critnodes:
-        crit_lifetimes.append(lifetimes[i])
-    lifetime = min(crit_lifetimes)
-    time = time[0]
-    
-    return -lifetime, latency, nMissed, missed_sequence, time
+    missed_packages = sent_list[0] - received_list[0]
+    percentage_missed = missed_packages/sent_list[0] if sent_list[0] > 0 else 1
+
+
+    return -lifetime, latency, percentage_missed, missed_packages
     
     
 
@@ -236,54 +244,39 @@ def sim_run(allocation_series = [], stopTime = 600, **kwargs):
 
 if __name__ == "__main__":
     import pickle as pck
+    import argparse
     import sqlalchemy as sql
     db = sql.create_engine('postgresql+psycopg2://dweikert:mydbcuzwhohacksthis@10.61.14.160:5432/dweikert')
     import json
     import ast
-    data, data_exp = grab_data(db)
-    for index, row in data.iterrows():
-        settings = json.loads(row['settings'])
-        settings.update({'posList' : []})
-        settings.update({'network_status' : []})
-        settings.update({'energy_list_sim' : []})
-        bests = pck.loads(row['bests'])
-        fronts = pck.loads(row['fronts'])
-        datap = f"{settings['datapath'][:-5]}_fronts.pck"
-        algorithm = settings['algorithm']
-        nnodes = settings['nNodes']
-        ntasks = settings['nTasks']
-        static = settings['static']
-        predictor= settings['predictor']
-        nonConeDomFronts = []
-            #print(fronts)
-            #print(datap)
-        deltaT = 30
-        index = 0
-        final_front = []
-        if len(fronts) < 20:
-            stopTime = 30*len(fronts)
-        if len(fronts) > 1:
-            for x in fronts:
-                trimmed_front = [y for y in x if y.fitness.values[1] < 9000]
-                if len(trimmed_front) > 0:
-                    nonConeDomFront = sortEpsilonNondominated(trimmed_front,len(trimmed_front))[0]
-                    #for j in nonConeDomFront[0].fitness.values:
-                        #print(j)
-                    final_front.append((tools.selBest(nonConeDomFront,1)[0],index*deltaT))
-                index += 1
-            #lifetime, latency, nMissed, missed_sequence, time = sim_run(final_front, **settings)
-            lifetime = 5000
-            latency = -1
-            nMissedSeq = []
-            nMissed = 0
-            for x in final_front:
-                lifetime = min(lifetime, x[0].fitness.values[0])
-                latency = max(latency, x[0].fitness.values[1])
-                nMissed +=  x[0].fitness.values[2]/20
-            if len(final_front) < 20:
-                nMissed = nMissed/len(final_front)*19
-            
-            save_to_db(db, lifetime, latency, nMissed, algorithm, nnodes, ntasks, predictor, static, index)
+    import os
+    jobid = os.getenv('SLURM_ARRAY_TASK_ID')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--index', action='store', default=-1)
+    args = parser.parse_args()
+    if int(args.index) > 0:
+        jobid = int(args.index)
+    #data, data_exp = grab_data(db)
+    row = grab_run(db, jobid)
+    settings = json.loads(row.iloc[0]['settings'])
+    bests = pck.loads(row.iloc[0]['bests'])
+    fronts = pck.loads(row.iloc[0]['fronts'])
+    archives = pck.loads(row.iloc[0]['archives'])
+    elitesets = pck.loads(row.iloc[0]['elitesets'])
+    algorithm = settings['algorithm']
+    nNodes = settings['nNodes']
+    nTasks = settings['nTasks']
+    static = settings['static']
+    predictor = settings['predictor']
+    print(algorithm)
+    lifetime, latency, percentage_missed, nMissed = sim_run(bests, archives, elitesets, **settings)
+    print(lifetime)    
+    print(latency)    
+    print(percentage_missed)    
+    print(nMissed)    
+        
+
+    save_to_db(db, lifetime, latency, percentage_missed, nMissed, algorithm, nNodes, nTasks, predictor, static, jobid, settings)
 
 
 

@@ -90,13 +90,17 @@ def create_experiments_from_files():
     import glob
     nTasks = 25
     algorithm = 'dmota'
-    settings_paths = glob.glob("/home/repos/Iot-task-allocation/datasets/**/*settings*", recursive=True)
+    settings_paths = glob.glob("datasets/**/*settings*", recursive=True)
+    print(f"Creating {len(settings_paths)} experiments")
     for spath in settings_paths:
         with open(spath, 'rb') as sfile:
             settings = json.load(sfile)
             statuspath = spath.replace("settings", "status")
             pospath = spath.replace("settings", "positions")
-            predpath = spath.replace("settings", "predictions")
+            if "mobile" in spath:
+                predpath = spath.replace("settings", "predictions")
+            else:
+                predpath = spath.replace("settings", "positions")
             broadcastpath = spath.replace("settings", "broadcast")
             with open(statuspath) as f:
                 status = json.load(f)
@@ -107,20 +111,23 @@ def create_experiments_from_files():
             with open(predpath) as f:
                 status = json.load(f)
                 settings.update({'prediction_data_all' : status})
-            with open(broadcastpath) as f:
-                status = json.load(f)
-                settings.update({'broadcast_status_all' : status})
+            if "mobile" in spath:
+                with open(broadcastpath) as f:
+                    status = json.load(f)
+                    settings.update({'broadcast_status_all' : status})
             for algorithm in ['dmota', 'amota', 'mmota']:
                 settings.update({'algorithm' : algorithm})
                 settings.update({'nTasks' : 25})
                 settings.update({'experiment' : 'dmota'})
                 settings.update({'popSize' : 100})
+                settings.update({"eval_mode" : "sim"})
+                settings.update({"task_creator" : 'OneSink'})
                 old_results = pd.read_sql("experiments", con=db)
                 min_index = old_results.index.max() + 1 if len(old_results) > 0 else 0
                 run = {'index' : min_index,
                     'experiment' : 'dmota',
                     'algorithm' : settings['algorithm'],
-                    'eval_mode': settings['eval_mode'],
+                    'eval_mode': "sim",
                     'status' : JobStatus.TODO,
                     'settings' : json.dumps(settings),
                     }

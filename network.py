@@ -80,6 +80,9 @@ class Network:
             mobilityHelperConst.SetMobilityModel(constantModel)
             mobilityHelperConst.Install(self.staticNodesContainer)
         else:
+            posL = kwargs['posList']
+            if len(posL) ==0:
+                posL = [[float(node.posx), float(node.posy)] for node in networkGraph.nodes()]
             for pos in kwargs['posList'][:len(kwargs['posList'])-mobileNodes+1]:
                 listPosAllocator.Add(ns.core.Vector3D(pos[0], pos[1],0))
             mobilityHelperConst.SetPositionAllocator(listPosAllocator)
@@ -138,15 +141,15 @@ class Network:
         #print(staticNodesCon.GetN())
         #print(mobileNodesCon.GetN())
         predictor = None
-        if pred == 'target':
-            predictor = ns.mobility.TargetGridPathPredictor()
-        elif pred == 'perfect':
-            predictor = None
-        elif pred == 'markov':
-            print(dir(ns.mobility))
-            predictor = ns.mobility.MarkovPredictor()
-        elif pred == 'nn':
-            predictor = nnPredictor()
+        #if pred == 'target':
+        #    predictor = ns.mobility.TargetGridPathPredictor()
+        #elif pred == 'perfect':
+        #    predictor = None
+        #elif pred == 'markov':
+        #    print(dir(ns.mobility))
+        #    predictor = ns.mobility.MarkovPredictor()
+        #elif pred == 'nn':
+        #    predictor = nnPredictor()
         return nodeContainer, staticNodesCon, mobileNodesCon, predictor
 
 
@@ -185,8 +188,8 @@ class Network:
         return energySourceContainer
     
     def initWifi(self, verbose, **kwargs):
-        #routingHelper = ns.aodv.AodvHelper()
-        routingHelper = ns.olsr.OlsrHelper()
+        routingHelper = ns.aodv.AodvHelper()
+        #routingHelper = ns.olsr.OlsrHelper()
         #routingHelper = ns.dsdv.DsdvHelper()
         listRouting = ns.internet.Ipv4ListRoutingHelper();
         static = ns.internet.Ipv4StaticRoutingHelper();
@@ -409,12 +412,15 @@ class Network:
         return retVal 
 
     def cleanUp(self):
+        print("performing network cleanup")
         del self.networkGraph
         self.networkGraph = 0
-        del self.controlTask
-        self.controlTask = 0
         del self.nodeContainer
         self.nodeContainer = 0
+        del self.staticNodesContainer
+        self.staticNodesContainer = 0
+        del self.mobileNodesContainer
+        self.mobileNodesContainer = 0
         del self.mobilityHelper
         self.mobilityHelper = 0
         del self.energyContainerList
@@ -432,7 +438,6 @@ def createTasksFromGraph(network, taskGraph = None, allocation = None, verbose =
         
         controlTask = controlTaskFactory.Create()
         controlTask.SetTaskApplications(network.taskApps)
-        network.controlTask = controlTask
         real_allocation = []
         statusV = []
         posV = []
@@ -473,7 +478,6 @@ def createTasksFromGraph(network, taskGraph = None, allocation = None, verbose =
     
     controlTask = controlTaskFactory.Create()
     controlTask.SetTaskApplications(network.taskApps)
-    network.controlTask = controlTask
     
     real_allocation = []
     for i, alloc in enumerate(allocation):
@@ -766,8 +770,6 @@ def evaluate(allocation = [], stopTime = 60, **kwargs):
     #for i,energy in enumerate(energy_list):
     #    if energy <= 0.1*kwargs['init_energy']:
     #        depleted_indexes.append((i, energy))
-    ns.core.LogComponentDisable("SystemMutex", ns.core.LOG_LEVEL_ALL)
-    ns.core.LogComponentDisable("Time", ns.core.LOG_LEVEL_ALL)
     if verbose:
         print(f"nodes left: {len(networkGraph.nodes())}")
     try:

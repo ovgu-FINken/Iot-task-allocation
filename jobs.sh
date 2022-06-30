@@ -1,11 +1,12 @@
 #!/bin/bash
 
-#SBATCH --output=logs/errorrate.%A_%a.log
+#SBATCH --output=logs/dmota.%A_%a.log
 #SBATCH --partition=ci
-#SBATCH --array=0-43
+#SBATCH --array=0-99
 #SBATCH --cpus-per-task=1
-
-
+#SBATCH --mem-per-cpu=8G
+#SBATCH --mail-type=ARRAY_TASKS,FAIL
+#SBATCH --mail-user=dominik.weikert@ovgu.de
 pwd;hostname;date
 
 #VALUES=({1000..2000})
