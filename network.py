@@ -17,7 +17,7 @@ import ns.internet
 import ns.sixlowpan
 import ns.energy
 import itertools
-
+from ns3.src.mobility.model import nnPredictor
 
 
 class Network:
@@ -26,6 +26,7 @@ class Network:
         self.networkGraph = networkGraph
         nodeCount = kwargs['nNodes']
         mobileNodeCount = kwargs['mobileNodeCount']
+        self.position_sequences = [[] for i in range(100)]
         if verbose:
             print(f"Creating network with {nodeCount} nodes")
         self.nodeContainer, self.staticNodesContainer, self.mobileNodesContainer, self.predictor= self.initNodes(nodeCount, mobileNodeCount, kwargs['predictor'], verbose)
@@ -289,7 +290,23 @@ class Network:
                     act_received.append(task.GetNReceived())
                     seqNums.append(list(task.GetSequenceNumbers()))
 
-    
+    def getNodePositions(self, node_list):
+        for i in range(100):
+            node = self.mobilityHelper.GetNode(i)
+            pos = node.DoGetPosition()
+            self.position_sequences[i].append([pos.x, pos.y])
+            node_list.append((pos.x, pos.y))
+
+    def getPredictedPositions(self, node_list, t):
+        for i in range(100):
+            node = self.mobilityHelper.GetNode(i)
+            if isinstance(self.predictor , nnPredictor.nnPredictor):
+                prediction = self.predictor.Predict(self.position_sequences[i])
+                node_list.append(prediction)
+            else:
+                prediction = self.predictor.Predict(node, t)
+                node_list.append((prediction.x, prediction.y))
+
     def getPredictions(self, predictions = [], time= 30):
         predtemp = []
         predtemp.append(list(self.predictor.PredictAll(self.mobileNodesContainer, time)))
